@@ -31,7 +31,6 @@ jobs:
           
           yes | flutter doctor --android-licenses || true
 
-          # كتابة pubspec.yaml بمسافات صحيحة وبدون أخطاء
           cat << 'EOF' > pubspec.yaml
           name: tv_launcher
           description: "Smart Ambient Android TV Launcher"
@@ -71,6 +70,11 @@ jobs:
               <application
                   android:label="Oman TV Launcher"
                   android:icon="@mipmap/ic_launcher">
+                  
+                  <meta-data
+                      android:name="flutterEmbedding"
+                      android:value="2" />
+
                   <activity
                       android:name=".MainActivity"
                       android:exported="true"
