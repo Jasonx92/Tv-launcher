@@ -1,0 +1,208 @@
+name: Build TV Launcher APK
+
+on:
+  push:
+    branches: [ main ]
+  workflow_dispatch:
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Java
+        uses: actions/setup-java@v4
+        with:
+          distribution: 'zulu'
+          java-version: '17'
+
+      - name: Set up Flutter
+        uses: subosito/flutter-action@v2
+        with:
+          flutter-version: '3.22.x'
+          channel: 'stable'
+
+      - name: Generate Project Files
+        run: |
+          flutter create --org com.omantv .
+          mkdir -p assets/backgrounds
+          curl -s -L -o assets/backgrounds/sunrise.jpg "https://images.unsplash.com/photo-1500382017468-9049fed747ef?w=1920"
+          curl -s -L -o assets/backgrounds/noon.jpg "https://images.unsplash.com/photo-1506744038136-46273834b3fb?w=1920"
+          curl -s -L -o assets/backgrounds/sunset.jpg "https://images.unsplash.com/photo-1507525428034-b723cf961d3e?w=1920"
+          curl -s -L -o assets/backgrounds/night.jpg "https://images.unsplash.com/photo-1519681393784-d120267933ba?w=1920"
+          flutter pub add intl device_apps url_launcher
+          
+          cat << 'EOF' > lib/main.dart
+          import 'dart:async';
+          import 'package:flutter/material.dart';
+          import 'package:device_apps/device_apps.dart';
+          import 'package:intl/intl.dart';
+
+          void main() {
+            WidgetsFlutterBinding.ensureInitialized();
+            runApp(const TVLauncherApp());
+          }
+
+          class TVLauncherApp extends StatelessWidget {
+            const TVLauncherApp({super.key});
+            @override
+            Widget build(BuildContext context) {
+              return MaterialApp(
+                debugShowCheckedModeBanner: false,
+                theme: ThemeData(brightness: Brightness.dark),
+                home: const TVHomeScreen(),
+              );
+            }
+          }
+
+          class TVHomeScreen extends StatefulWidget {
+            const TVHomeScreen({super.key});
+            @override
+            State<TVHomeScreen> createState() => _TVHomeScreenState();
+          }
+
+          class _TVHomeScreenState extends State<TVHomeScreen> {
+            List<ApplicationWithIcon> _apps = [];
+            String _bgImage = 'assets/backgrounds/night.jpg';
+            Timer? _timer;
+            DateTime _currentTime = DateTime.now();
+
+            @override
+            void initState() {
+              super.initState();
+              _loadApps();
+              _updateState();
+              _timer = Timer.periodic(const Duration(seconds: 30), (_) => _updateState());
+            }
+
+            void _loadApps() async {
+              List<Application> apps = await DeviceApps.getInstalledApplications(
+                includeAppIcons: true,
+                includeSystemApps: true,
+                onlyAppsWithLaunchIntent: true,
+              );
+              setState(() => _apps = apps.whereType<ApplicationWithIcon>().toList());
+            }
+
+            void _updateState() {
+              final hour = DateTime.now().hour;
+              String bg = 'assets/backgrounds/night.jpg';
+              if (hour >= 5 && hour < 7) bg = 'assets/backgrounds/sunrise.jpg';
+              else if (hour >= 7 && hour < 16) bg = 'assets/backgrounds/noon.jpg';
+              else if (hour >= 16 && hour < 19) bg = 'assets/backgrounds/sunset.jpg';
+
+              setState(() {
+                _currentTime = DateTime.now();
+                _bgImage = bg;
+              });
+            }
+
+            @override
+            void dispose() {
+              _timer?.cancel();
+              super.dispose();
+            }
+
+            @override
+            Widget build(BuildContext context) {
+              final timeStr = DateFormat('h:mm').format(_currentTime);
+              final periodStr = DateFormat('a').format(_currentTime) == 'AM' ? 'ص' : 'م';
+
+              return Scaffold(
+                body: Stack(
+                  children: [
+                    Positioned.fill(
+                      child: Image.asset(_bgImage, fit: BoxFit.cover),
+                    ),
+                    Positioned.fill(child: Container(color: Colors.black.withOpacity(0.35))),
+                    SafeArea(
+                      child: Padding(
+                        padding: const EdgeInsets.symmetric(horizontal: 40, vertical: 24),
+                        child: Column(
+                          children: [
+                            Row(
+                              mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                              children: [
+                                Row(
+                                  children: [
+                                    Text(timeStr, style: const TextStyle(fontSize: 52, fontWeight: FontWeight.bold, color: Colors.white)),
+                                    const SizedBox(width: 8),
+                                    Text(periodStr, style: const TextStyle(fontSize: 22, color: Colors.white70)),
+                                  ],
+                                ),
+                                IconButton(
+                                  icon: const Icon(Icons.settings, color: Colors.white, size: 28),
+                                  onPressed: () {
+                                    showDialog(
+                                      context: context,
+                                      builder: (_) => AlertDialog(
+                                        backgroundColor: const Color(0xFF1E1E2C),
+                                        title: const Text("معلومات اللانشر", style: TextStyle(color: Colors.white)),
+                                        content: const Column(
+                                          mainAxisSize: MainAxisSize.min,
+                                          crossAxisAlignment: CrossAxisAlignment.start,
+                                          children: [
+                                            Text("الإصدار: v1.0.0", style: TextStyle(color: Colors.white70)),
+                                            SizedBox(height: 8),
+                                            Text("المطور: Mohammed Fadhil", style: TextStyle(color: Color(0xFF4E95FF), fontWeight: FontWeight.bold)),
+                                          ],
+                                        ),
+                                        actions: [
+                                          TextButton(onPressed: () => Navigator.pop(context), child: const Text("إغلاق"))
+                                        ],
+                                      ),
+                                    );
+                                  },
+                                ),
+                              ],
+                            ),
+                            const Spacer(),
+                            Container(
+                              height: 95,
+                              padding: const EdgeInsets.symmetric(vertical: 6),
+                              decoration: BoxDecoration(
+                                color: Colors.black.withOpacity(0.4),
+                                borderRadius: BorderRadius.circular(20),
+                              ),
+                              child: _apps.isEmpty
+                                  ? const Center(child: CircularProgressIndicator())
+                                  : ListView.builder(
+                                      scrollDirection: Axis.horizontal,
+                                      itemCount: _apps.length,
+                                      itemBuilder: (context, i) => GestureDetector(
+                                        onTap: () => DeviceApps.openApp(_apps[i].packageName),
+                                        child: Container(
+                                          width: 85,
+                                          margin: const EdgeInsets.symmetric(horizontal: 6),
+                                          child: Column(
+                                            mainAxisAlignment: MainAxisAlignment.center,
+                                            children: [
+                                              Image.memory(_apps[i].icon, width: 44, height: 44),
+                                              const SizedBox(height: 4),
+                                              Text(_apps[i].appName, maxLines: 1, overflow: TextOverflow.ellipsis, style: const TextStyle(fontSize: 11)),
+                                            ],
+                                          ),
+                                        ),
+                                      ),
+                                    ),
+                            ),
+                          ],
+                        ),
+                      ),
+                    ),
+                  ],
+                ),
+              );
+            }
+          }
+          EOF
+
+      - name: Build APK
+        run: flutter build apk --debug
+
+      - name: Upload Artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: Oman-TV-Launcher-v1.0.0-Mohammed-Fadhil
+          path: build/app/outputs/flutter-apk/app-debug.apk
