@@ -29,67 +29,223 @@ jobs:
           flutter create --org com.omantv --project-name tv_launcher --platforms=android .
           yes | flutter doctor --android-licenses || true
 
-      - name: Configure Pubspec
-        run: |
-          printf "%s\n" \
-            "name: tv_launcher" \
-            "description: TV Launcher" \
-            "publish_to: 'none'" \
-            "version: 1.0.0+1" \
-            "environment:" \
-            "  sdk: '>=3.0.0 <4.0.0'" \
-            "dependencies:" \
-            "  flutter:" \
-            "    sdk: flutter" \
-            "  intl: ^0.19.0" \
-            "  installed_apps: ^2.1.1" \
-            "  url_launcher: ^6.3.0" \
-            "flutter:" \
-            "  uses-material-design: true" \
-            "  assets:" \
-            "    - assets/backgrounds/" > pubspec.yaml
-
-          flutter pub get
-          mkdir -p assets/backgrounds
-          curl -s -L -o assets/backgrounds/noon.jpg "https://picsum.photos/1920/1080"
-          curl -s -L -o assets/backgrounds/night.jpg "https://picsum.photos/1920/1080"
+          # رفع minSdkVersion إلى 21 لتوافق أجهزة التلفزيون ومكتبات أندرويد
+          sed -i 's/minSdkVersion = flutter.minSdkVersion/minSdkVersion = 21/g' android/app/build.gradle || true
+          sed -i 's/minSdkVersion flutter.minSdkVersion/minSdkVersion 21/g' android/app/build.gradle || true
 
       - name: Configure Android TV Manifest
         run: |
-          printf "%s\n" \
-            '<manifest xmlns:android="http://schemas.android.com/apk/res/android">' \
-            '    <uses-feature android:name="android.software.leanback" android:required="false" />' \
-            '    <uses-feature android:name="android.hardware.touchscreen" android:required="false" />' \
-            '    <uses-permission android:name="android.permission.INTERNET" />' \
-            '    <uses-permission android:name="android.permission.QUERY_ALL_PACKAGES" />' \
-            '    <application' \
-            '        android:label="Oman TV Launcher"' \
-            '        android:name="${applicationName}"' \
-            '        android:icon="@mipmap/ic_launcher">' \
-            '        <activity' \
-            '            android:name=".MainActivity"' \
-            '            android:exported="true"' \
-            '            android:launchMode="singleTop"' \
-            '            android:theme="@style/LaunchTheme"' \
-            '            android:configChanges="orientation|keyboardHidden|keyboard|screenSize|smallestScreenSize|locale|layoutDirection|fontScale|screenLayout|density|uiMode"' \
-            '            android:hardwareAccelerated="true"' \
-            '            android:windowSoftInputMode="adjustResize">' \
-            '            <meta-data' \
-            '                android:name="io.flutter.embedding.android.NormalTheme"' \
-            '                android:resource="@style/NormalTheme" />' \
-            '            <intent-filter>' \
-            '                <action android:name="android.intent.action.MAIN"/>' \
-            '                <category android:name="android.intent.category.LAUNCHER"/>' \
-            '                <category android:name="android.intent.category.HOME" />' \
-            '                <category android:name="android.intent.category.DEFAULT" />' \
-            '                <category android:name="android.intent.category.LEANBACK_LAUNCHER" />' \
-            '            </intent-filter>' \
-            '        </activity>' \
-            '        <meta-data' \
-            '            android:name="flutterEmbedding"' \
-            '            android:value="2" />' \
-            '    </application>' \
-            '</manifest>' > android/app/src/main/AndroidManifest.xml
+          cat << 'EOF' > android/app/src/main/AndroidManifest.xml
+          <manifest xmlns:android="http://schemas.android.com/apk/res/android">
+              <uses-feature android:name="android.software.leanback" android:required="false" />
+              <uses-feature android:name="android.hardware.touchscreen" android:required="false" />
+              <uses-permission android:name="android.permission.INTERNET" />
+              <uses-permission android:name="android.permission.QUERY_ALL_PACKAGES" />
+              <application
+                  android:label="Oman TV Launcher"
+                  android:name="${applicationName}"
+                  android:icon="@mipmap/ic_launcher">
+                  <activity
+                      android:name=".MainActivity"
+                      android:exported="true"
+                      android:launchMode="singleTop"
+                      android:theme="@style/LaunchTheme"
+                      android:configChanges="orientation|keyboardHidden|keyboard|screenSize|smallestScreenSize|locale|layoutDirection|fontScale|screenLayout|density|uiMode"
+                      android:hardwareAccelerated="true"
+                      android:windowSoftInputMode="adjustResize">
+                      <meta-data
+                          android:name="io.flutter.embedding.android.NormalTheme"
+                          android:resource="@style/NormalTheme" />
+                      <intent-filter>
+                          <action android:name="android.intent.action.MAIN"/>
+                          <category android:name="android.intent.category.LAUNCHER"/>
+                          <category android:name="android.intent.category.HOME" />
+                          <category android:name="android.intent.category.DEFAULT" />
+                          <category android:name="android.intent.category.LEANBACK_LAUNCHER" />
+                      </intent-filter>
+                  </activity>
+                  <meta-data
+                      android:name="flutterEmbedding"
+                      android:value="2" />
+              </application>
+          </manifest>
+          EOF
+
+      - name: Write Launcher Code
+        run: |
+          cat << 'EOF' > lib/main.dart
+          import 'dart:async';
+          import 'package:flutter/material.dart';
+
+          void main() {
+            WidgetsFlutterBinding.ensureInitialized();
+            runApp(const TVLauncherApp());
+          }
+
+          class TVLauncherApp extends StatelessWidget {
+            const TVLauncherApp({super.key});
+            @override
+            Widget build(BuildContext context) {
+              return MaterialApp(
+                debugShowCheckedModeBanner: false,
+                title: 'Oman TV Launcher',
+                theme: ThemeData(
+                  brightness: Brightness.dark,
+                  scaffoldBackgroundColor: const Color(0xFF0F1016),
+                ),
+                home: const TVHomeScreen(),
+              );
+            }
+          }
+
+          class TVHomeScreen extends StatefulWidget {
+            const TVHomeScreen({super.key});
+            @override
+            State<TVHomeScreen> createState() => _TVHomeScreenState();
+          }
+
+          class _TVHomeScreenState extends State<TVHomeScreen> {
+            DateTime _currentTime = DateTime.now();
+            Timer? _timer;
+
+            final List<Map<String, dynamic>> _quickApps = [
+              {'name': 'YouTube', 'icon': Icons.play_circle_fill, 'color': Colors.red},
+              {'name': 'Netflix', 'icon': Icons.movie_creation, 'color': Colors.redAccent},
+              {'name': 'Media Player', 'icon': Icons.video_library, 'color': Colors.orange},
+              {'name': 'Live TV', 'icon': Icons.live_tv, 'color': Colors.blue},
+              {'name': 'Settings', 'icon': Icons.settings, 'color': Colors.grey},
+            ];
+
+            @override
+            void initState() {
+              super.initState();
+              _timer = Timer.periodic(const Duration(seconds: 1), (_) {
+                if (mounted) setState(() => _currentTime = DateTime.now());
+              });
+            }
+
+            @override
+            void dispose() {
+              _timer?.cancel();
+              super.dispose();
+            }
+
+            @override
+            Widget build(BuildContext context) {
+              final hours = _currentTime.hour.toString().padLeft(2, '0');
+              final minutes = _currentTime.minute.toString().padLeft(2, '0');
+
+              return Scaffold(
+                body: Container(
+                  decoration: const BoxDecoration(
+                    gradient: LinearGradient(
+                      begin: Alignment.topLeft,
+                      end: Alignment.bottomRight,
+                      colors: [Color(0xFF0F172A), Color(0xFF020617)],
+                    ),
+                  ),
+                  child: SafeArea(
+                    child: Padding(
+                      padding: const EdgeInsets.symmetric(horizontal: 50, vertical: 30),
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Row(
+                            mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                            children: [
+                              Column(
+                                crossAxisAlignment: CrossAxisAlignment.start,
+                                children: [
+                                  Text(
+                                    "$hours:$minutes",
+                                    style: const TextStyle(fontSize: 64, fontWeight: FontWeight.bold, color: Colors.white),
+                                  ),
+                                  const Text(
+                                    "Oman TV Launcher",
+                                    style: TextStyle(fontSize: 18, color: Colors.white70, letterSpacing: 1.2),
+                                  ),
+                                ],
+                              ),
+                              IconButton(
+                                icon: const Icon(Icons.info_outline, size: 30, color: Colors.white70),
+                                onPressed: () {
+                                  showDialog(
+                                    context: context,
+                                    builder: (_) => AlertDialog(
+                                      backgroundColor: const Color(0xFF1E293B),
+                                      title: const Text("معلومات التطبيق", style: TextStyle(color: Colors.white)),
+                                      content: const Column(
+                                        mainAxisSize: MainAxisSize.min,
+                                        crossAxisAlignment: CrossAxisAlignment.start,
+                                        children: [
+                                          Text("الاسم: Oman TV Launcher", style: TextStyle(color: Colors.white70)),
+                                          SizedBox(height: 6),
+                                          Text("الإصدار: v1.0.0", style: TextStyle(color: Colors.white70)),
+                                          SizedBox(height: 6),
+                                          Text("المطور: Mohammed Fadhil", style: TextStyle(color: Color(0xFF38BDF8), fontWeight: FontWeight.bold)),
+                                        ],
+                                      ),
+                                      actions: [
+                                        TextButton(onPressed: () => Navigator.pop(context), child: const Text("إغلاق"))
+                                      ],
+                                    ),
+                                  );
+                                },
+                              ),
+                            ],
+                          ),
+                          const Spacer(),
+                          const Text(
+                            "التطبيقات الرئيسية",
+                            style: TextStyle(color: Colors.white60, fontSize: 16, fontWeight: FontWeight.bold),
+                          ),
+                          const SizedBox(height: 14),
+                          SizedBox(
+                            height: 120,
+                            child: ListView.builder(
+                              scrollDirection: Axis.horizontal,
+                              itemCount: _quickApps.length,
+                              itemBuilder: (context, index) {
+                                final app = _quickApps[index];
+                                return Focus(
+                                  child: Builder(builder: (ctx) {
+                                    final isFocused = Focus.of(ctx).hasFocus;
+                                    return AnimatedContainer(
+                                      duration: const Duration(milliseconds: 150),
+                                      width: 120,
+                                      margin: const EdgeInsets.only(right: 16),
+                                      decoration: BoxDecoration(
+                                        color: isFocused ? Colors.white.withOpacity(0.2) : Colors.white.withOpacity(0.06),
+                                        borderRadius: BorderRadius.circular(18),
+                                        border: Border.all(
+                                          color: isFocused ? const Color(0xFF38BDF8) : Colors.white10,
+                                          width: isFocused ? 2 : 1,
+                                        ),
+                                      ),
+                                      child: Column(
+                                        mainAxisAlignment: MainAxisAlignment.center,
+                                        children: [
+                                          Icon(app['icon'], size: 40, color: app['color']),
+                                          const SizedBox(height: 8),
+                                          Text(app['name'], style: const TextStyle(fontSize: 12, color: Colors.white)),
+                                        ],
+                                      ),
+                                    );
+                                  }),
+                                );
+                              },
+                            ),
+                          ),
+                          const SizedBox(height: 10),
+                        ],
+                      ),
+                    ),
+                  ),
+                ),
+              );
+            }
+          }
+          EOF
 
       - name: Build APK Debug
         run: flutter build apk --debug
