@@ -38,7 +38,7 @@ jobs:
           name: tv_launcher
           description: "MF Launcher"
           publish_to: "none"
-          version: 1.1.0+2
+          version: 1.1.1+3
 
           environment:
             sdk: ">=3.0.0 <4.0.0"
@@ -99,9 +99,11 @@ jobs:
           import 'package:flutter/material.dart';
           import 'package:http/http.dart' as http;
           import 'package:intl/intl.dart';
+          import 'package:intl/date_symbol_data_local.dart';
 
-          void main() {
+          void main() async {
             WidgetsFlutterBinding.ensureInitialized();
+            await initializeDateFormatting('ar', null);
             runApp(const TVLauncherApp());
           }
 
@@ -376,5 +378,5 @@ jobs:
       - name: Upload APK
         uses: actions/upload-artifact@v4
         with:
-          name: MF-Launcher-v1.1.0-Mohammed-Fadhil
+          name: MF-Launcher-v1.1.1-Mohammed-Fadhil
           path: build/app/outputs/flutter-apk/app-debug.apk
