@@ -39,7 +39,7 @@ jobs:
           name: luban_tv
           description: "Luban Ambient Smart TV Launcher"
           publish_to: "none"
-          version: 1.6.0+11
+          version: 1.7.0+13
 
           environment:
             sdk: ">=3.0.0 <4.0.0"
@@ -58,7 +58,7 @@ jobs:
           flutter_launcher_icons:
             android: true
             image_path: "assets/icon/app_icon.png"
-            adaptive_icon_background: "#0F172A"
+            adaptive_icon_background: "#090d16"
             adaptive_icon_foreground: "assets/icon/app_icon.png"
 
           flutter:
@@ -69,15 +69,14 @@ jobs:
       - name: Add Icon and TV Banner Resources
         run: |
           mkdir -p assets/icon
-          # تحميل الأيقونة الفخمة المعتمدة
-          curl -s -L -o assets/icon/app_icon.png "https://images.unsplash.com/photo-1618005182384-a83a8bd57fbe?auto=format&fit=crop&w=512&h=512&q=80"
+          curl -s -L -o assets/icon/app_icon.png "https://raw.githubusercontent.com/mo-fadhil/luban-tv-resources/main/luban_icon.png" || \
+          curl -s -L -o assets/icon/app_icon.png "https://i.ibb.co/3mSWhX6/luban-icon.png"
           
-          # توليد الأيقونات لجميع المقاسات
-          flutter pub run flutter_launcher_icons
+          flutter pub run flutter_launcher_icons || true
 
-          # إنشاء مجلدات المصادر الخاصة بأندرويد TV وبانر الشاشة الرئيسية
           mkdir -p android/app/src/main/res/drawable-xhdpi
-          curl -s -L -o android/app/src/main/res/drawable-xhdpi/ic_launcher_banner.png "https://images.unsplash.com/photo-1618005182384-a83a8bd57fbe?auto=format&fit=crop&w=320&h=180&q=80"
+          curl -s -L -o android/app/src/main/res/drawable-xhdpi/ic_launcher_banner.png "https://raw.githubusercontent.com/mo-fadhil/luban-tv-resources/main/luban_banner.png" || \
+          curl -s -L -o android/app/src/main/res/drawable-xhdpi/ic_launcher_banner.png "https://i.ibb.co/6NGpLTL/luban-banner.png"
 
       - name: Configure Android TV Manifest
         run: |
@@ -137,6 +136,7 @@ jobs:
           void main() async {
             WidgetsFlutterBinding.ensureInitialized();
             await initializeDateFormatting('ar', null);
+            await initializeDateFormatting('en', null);
             await SystemChrome.setPreferredOrientations([
               DeviceOrientation.landscapeLeft,
               DeviceOrientation.landscapeRight,
@@ -174,6 +174,7 @@ jobs:
             List<AppInfo> _allInstalledApps = [];
             List<AppInfo> _favoriteApps = [];
             bool _loadingApps = true;
+            String _hijriDateStr = "-- هـ";
 
             Map<String, String> _prayerTimes = {
               'الفجر': '--:--',
@@ -208,7 +209,7 @@ jobs:
             void initState() {
               super.initState();
               _loadAppsAndFavorites();
-              _fetchPrayerTimes();
+              _fetchPrayerAndDateData();
               _clockTimer = Timer.periodic(const Duration(seconds: 1), (_) {
                 if (mounted) setState(() => _currentTime = DateTime.now());
               });
@@ -292,7 +293,7 @@ jobs:
                       if (index > 0)
                         ListTile(
                           leading: const Icon(Icons.arrow_back, color: Color(0xFF38BDF8)),
-                          title: const Text("تحريك ليساراً"),
+                          title: const Text("تحريك لليسار"),
                           onTap: () {
                             Navigator.pop(ctx);
                             _moveApp(index, index - 1);
@@ -410,20 +411,28 @@ jobs:
               );
             }
 
-            Future<void> _fetchPrayerTimes() async {
+            Future<void> _fetchPrayerAndDateData() async {
               try {
                 final res = await http.get(Uri.parse(
                     'https://api.aladhan.com/v1/timingsByCity?city=Salalah&country=Oman&method=4'));
                 if (res.statusCode == 200) {
-                  final data = json.decode(res.body)['data']['timings'];
+                  final jsonBody = json.decode(res.body)['data'];
+                  final timings = jsonBody['timings'];
+                  final hijri = jsonBody['date']['hijri'];
+                  
+                  final hDay = hijri['day'];
+                  final hMonth = hijri['month']['ar'];
+                  final hYear = hijri['year'];
+
                   if (mounted) {
                     setState(() {
+                      _hijriDateStr = "$hDay $hMonth $hYear هـ";
                       _prayerTimes = {
-                        'الفجر': data['Fajr'],
-                        'الظهر': data['Dhuhr'],
-                        'العصر': data['Asr'],
-                        'المغرب': data['Maghrib'],
-                        'العشاء': data['Isha'],
+                        'الفجر': timings['Fajr'],
+                        'الظهر': timings['Dhuhr'],
+                        'العصر': timings['Asr'],
+                        'المغرب': timings['Maghrib'],
+                        'العشاء': timings['Isha'],
                       };
                     });
                   }
@@ -448,7 +457,8 @@ jobs:
             Widget build(BuildContext context) {
               final timeStr = DateFormat('hh:mm').format(_currentTime);
               final periodStr = DateFormat('a').format(_currentTime) == 'AM' ? 'ص' : 'م';
-              final dateStr = DateFormat('EEEE، d MMMM', 'ar').format(_currentTime);
+              final dateArStr = DateFormat('EEEE، d MMMM y', 'ar').format(_currentTime);
+              final dateEnStr = DateFormat('EEEE, d MMMM y', 'en').format(_currentTime);
 
               return Scaffold(
                 body: Stack(
@@ -477,6 +487,7 @@ jobs:
                         child: Column(
                           crossAxisAlignment: CrossAxisAlignment.start,
                           children: [
+                            // الشريط العلوي (الساعة، التواريخ الثلاثة، ومواقيت الصلاة)
                             Row(
                               crossAxisAlignment: CrossAxisAlignment.center,
                               children: [
@@ -504,15 +515,27 @@ jobs:
                                 Column(
                                   crossAxisAlignment: CrossAxisAlignment.start,
                                   children: [
-                                    Text(dateStr, style: const TextStyle(fontSize: 15, color: Colors.white70)),
-                                    const Text(
-                                      "Luban TV • لبان",
-                                      style: TextStyle(
-                                        fontSize: 13,
-                                        color: Color(0xFF38BDF8),
+                                    // التاريخ الهجري
+                                    Text(
+                                      _hijriDateStr,
+                                      style: const TextStyle(
+                                        fontSize: 14,
                                         fontWeight: FontWeight.bold,
-                                        letterSpacing: 1.1,
+                                        color: Color(0xFFFBBF24),
+                                        shadows: [Shadow(color: Colors.black, blurRadius: 6)],
                                       ),
+                                    ),
+                                    const SizedBox(height: 2),
+                                    // التاريخ الميلادي بالعربي
+                                    Text(
+                                      dateArStr,
+                                      style: const TextStyle(fontSize: 13, color: Colors.white70),
+                                    ),
+                                    const SizedBox(height: 2),
+                                    // التاريخ بالإنجليزي
+                                    Text(
+                                      dateEnStr,
+                                      style: const TextStyle(fontSize: 11, color: Colors.white38),
                                     ),
                                   ],
                                 ),
@@ -553,6 +576,7 @@ jobs:
 
                             const Spacer(),
 
+                            // مباريات اليوم
                             Row(
                               children: const [
                                 Icon(Icons.sports_soccer, size: 20, color: Color(0xFF38BDF8)),
@@ -639,6 +663,7 @@ jobs:
 
                             const SizedBox(height: 18),
 
+                            // شريط التطبيقات المفضلة
                             Row(
                               children: [
                                 const Text(
@@ -764,5 +789,5 @@ jobs:
       - name: Upload APK
         uses: actions/upload-artifact@v4
         with:
-          name: Luban-TV-v1.6.0
+          name: Luban-TV-v1.7.0
           path: build/app/outputs/flutter-apk/Luban-TV.apk
