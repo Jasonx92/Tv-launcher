@@ -21,12 +21,13 @@ jobs:
       - name: Set up Flutter
         uses: subosito/flutter-action@v2
         with:
+          flutter-version: '3.19.6'
           channel: 'stable'
 
       - name: Setup Android TV Project
         run: |
           find . -maxdepth 1 ! -name '.' ! -name '.git' ! -name '.github' -exec rm -rf {} +
-          flutter create --org com.mflauncher --project-name tv_launcher --platforms=android .
+          flutter create --org com.luban --project-name luban_tv --platforms=android .
           yes | flutter doctor --android-licenses || true
 
           sed -i 's/minSdkVersion = flutter.minSdkVersion/minSdkVersion = 21/g' android/app/build.gradle || true
@@ -35,10 +36,10 @@ jobs:
       - name: Configure Pubspec
         run: |
           cat << 'EOF' > pubspec.yaml
-          name: tv_launcher
-          description: "MF Launcher"
+          name: luban_tv
+          description: "Luban TV Launcher"
           publish_to: "none"
-          version: 1.1.1+3
+          version: 1.5.0+10
 
           environment:
             sdk: ">=3.0.0 <4.0.0"
@@ -48,6 +49,8 @@ jobs:
               sdk: flutter
             intl: ^0.19.0
             http: ^1.2.0
+            installed_apps: ^2.1.1
+            shared_preferences: ^2.2.3
 
           flutter:
             uses-material-design: true
@@ -61,13 +64,17 @@ jobs:
               <uses-feature android:name="android.software.leanback" android:required="false" />
               <uses-feature android:name="android.hardware.touchscreen" android:required="false" />
               <uses-permission android:name="android.permission.INTERNET" />
+              <uses-permission android:name="android.permission.QUERY_ALL_PACKAGES" />
+              
               <application
-                  android:label="MF Launcher"
+                  android:label="Luban TV"
                   android:name="${applicationName}"
+                  android:banner="@mipmap/ic_launcher"
                   android:icon="@mipmap/ic_launcher">
                   <activity
                       android:name=".MainActivity"
                       android:exported="true"
+                      android:screenOrientation="sensorLandscape"
                       android:launchMode="singleTop"
                       android:theme="@style/LaunchTheme"
                       android:configChanges="orientation|keyboardHidden|keyboard|screenSize|smallestScreenSize|locale|layoutDirection|fontScale|screenLayout|density|uiMode"
@@ -91,47 +98,61 @@ jobs:
           </manifest>
           EOF
 
-      - name: Write Launcher Code
+      - name: Write Complete Launcher Code
         run: |
           cat << 'EOF' > lib/main.dart
           import 'dart:async';
           import 'dart:convert';
           import 'package:flutter/material.dart';
+          import 'package:flutter/services.dart';
           import 'package:http/http.dart' as http;
+          import 'package:installed_apps/app_info.dart';
+          import 'package:installed_apps/installed_apps.dart';
           import 'package:intl/intl.dart';
           import 'package:intl/date_symbol_data_local.dart';
+          import 'package:shared_preferences/shared_preferences.dart';
 
           void main() async {
             WidgetsFlutterBinding.ensureInitialized();
             await initializeDateFormatting('ar', null);
-            runApp(const TVLauncherApp());
+            await SystemChrome.setPreferredOrientations([
+              DeviceOrientation.landscapeLeft,
+              DeviceOrientation.landscapeRight,
+            ]);
+            runApp(const LubanTVApp());
           }
 
-          class TVLauncherApp extends StatelessWidget {
-            const TVLauncherApp({super.key});
+          class LubanTVApp extends StatelessWidget {
+            const LubanTVApp({super.key});
+
             @override
             Widget build(BuildContext context) {
               return MaterialApp(
                 debugShowCheckedModeBanner: false,
-                title: 'MF Launcher',
+                title: 'Luban TV',
                 theme: ThemeData(
                   brightness: Brightness.dark,
                   fontFamily: 'sans-serif',
                 ),
-                home: const TVHomeScreen(),
+                home: const LubanHomeScreen(),
               );
             }
           }
 
-          class TVHomeScreen extends StatefulWidget {
-            const TVHomeScreen({super.key});
+          class LubanHomeScreen extends StatefulWidget {
+            const LubanHomeScreen({super.key});
+
             @override
-            State<TVHomeScreen> createState() => _TVHomeScreenState();
+            State<LubanHomeScreen> createState() => _LubanHomeScreenState();
           }
 
-          class _TVHomeScreenState extends State<TVHomeScreen> {
+          class _LubanHomeScreenState extends State<LubanHomeScreen> {
             DateTime _currentTime = DateTime.now();
-            Timer? _timer;
+            Timer? _clockTimer;
+            List<AppInfo> _allInstalledApps = [];
+            List<AppInfo> _favoriteApps = [];
+            bool _loadingApps = true;
+
             Map<String, String> _prayerTimes = {
               'الفجر': '--:--',
               'الظهر': '--:--',
@@ -140,28 +161,231 @@ jobs:
               'العشاء': '--:--',
             };
 
-            final List<Map<String, dynamic>> _apps = [
-              {'name': 'YouTube', 'icon': Icons.play_arrow_rounded, 'color': Colors.red},
-              {'name': 'Netflix', 'icon': Icons.movie_filter_rounded, 'color': Colors.redAccent},
-              {'name': 'القرآن الكريم', 'icon': Icons.menu_book_rounded, 'color': Colors.green},
-              {'name': 'البث المباشر', 'icon': Icons.live_tv_rounded, 'color': Colors.blueAccent},
-              {'name': 'الملفات', 'icon': Icons.folder_rounded, 'color': Colors.amber},
-              {'name': 'الإعدادات', 'icon': Icons.settings_rounded, 'color': Colors.grey},
+            final List<Map<String, String>> _matches = [
+              {
+                'league': 'دوري أبطال أوروبا',
+                'teamA': 'ريال مدريد',
+                'teamB': 'مانشستر سيتي',
+                'time': '11:00 م',
+              },
+              {
+                'league': 'الدوري الإنجليزي',
+                'teamA': 'ليفربول',
+                'teamB': 'أرسنال',
+                'time': '8:30 م',
+              },
+              {
+                'league': 'دوري روشن',
+                'teamA': 'الهلال',
+                'teamB': 'النصر',
+                'time': '9:00 م',
+              },
             ];
 
             @override
             void initState() {
               super.initState();
-              _timer = Timer.periodic(const Duration(seconds: 1), (_) {
+              _loadAppsAndFavorites();
+              _fetchPrayerTimes();
+              _clockTimer = Timer.periodic(const Duration(seconds: 1), (_) {
                 if (mounted) setState(() => _currentTime = DateTime.now());
               });
-              _fetchPrayerTimes();
             }
 
             @override
             void dispose() {
-              _timer?.cancel();
+              _clockTimer?.cancel();
               super.dispose();
+            }
+
+            Future<void> _loadAppsAndFavorites() async {
+              try {
+                final apps = await InstalledApps.getInstalledApps(withIcon: true, packageNamePrefix: '');
+                final prefs = await SharedPreferences.getInstance();
+                final savedFavs = prefs.getStringList('fav_apps');
+
+                List<AppInfo> favs = [];
+                if (savedFavs != null && savedFavs.isNotEmpty) {
+                  for (var pkg in savedFavs) {
+                    final found = apps.where((a) => a.packageName == pkg);
+                    if (found.isNotEmpty) favs.add(found.first);
+                  }
+                } else {
+                  favs = apps.take(7).toList();
+                  await _saveFavorites(favs);
+                }
+
+                if (mounted) {
+                  setState(() {
+                    _allInstalledApps = apps;
+                    _favoriteApps = favs;
+                    _loadingApps = false;
+                  });
+                }
+              } catch (_) {
+                if (mounted) setState(() => _loadingApps = false);
+              }
+            }
+
+            Future<void> _saveFavorites(List<AppInfo> apps) async {
+              final prefs = await SharedPreferences.getInstance();
+              final pkgList = apps.map((a) => a.packageName).toList();
+              await prefs.setStringList('fav_apps', pkgList);
+            }
+
+            void _moveApp(int oldIndex, int newIndex) {
+              if (newIndex < 0 || newIndex >= _favoriteApps.length) return;
+              setState(() {
+                final item = _favoriteApps.removeAt(oldIndex);
+                _favoriteApps.insert(newIndex, item);
+              });
+              _saveFavorites(_favoriteApps);
+            }
+
+            void _removeApp(int index) {
+              setState(() {
+                _favoriteApps.removeAt(index);
+              });
+              _saveFavorites(_favoriteApps);
+            }
+
+            void _addAppToFav(AppInfo app) {
+              if (_favoriteApps.any((a) => a.packageName == app.packageName)) return;
+              setState(() {
+                _favoriteApps.add(app);
+              });
+              _saveFavorites(_favoriteApps);
+            }
+
+            void _showAppOptionsDialog(int index) {
+              final app = _favoriteApps[index];
+              showDialog(
+                context: context,
+                builder: (ctx) => AlertDialog(
+                  backgroundColor: const Color(0xFF1E293B),
+                  title: Text(app.name, style: const TextStyle(color: Colors.white, fontSize: 18)),
+                  content: Column(
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      if (index > 0)
+                        ListTile(
+                          leading: const Icon(Icons.arrow_back, color: Color(0xFF38BDF8)),
+                          title: const Text("تحريك لليسار"),
+                          onTap: () {
+                            Navigator.pop(ctx);
+                            _moveApp(index, index - 1);
+                          },
+                        ),
+                      if (index < _favoriteApps.length - 1)
+                        ListTile(
+                          leading: const Icon(Icons.arrow_forward, color: Color(0xFF38BDF8)),
+                          title: const Text("تحريك لليمين"),
+                          onTap: () {
+                            Navigator.pop(ctx);
+                            _moveApp(index, index + 1);
+                          },
+                        ),
+                      ListTile(
+                        leading: const Icon(Icons.delete_outline, color: Colors.redAccent),
+                        title: const Text("إزالة من الشريط الرئيسي", style: TextStyle(color: Colors.redAccent)),
+                        onTap: () {
+                          Navigator.pop(ctx);
+                          _removeApp(index);
+                        },
+                      ),
+                    ],
+                  ),
+                ),
+              );
+            }
+
+            void _openAllAppsModal() {
+              showModalBottomSheet(
+                context: context,
+                backgroundColor: const Color(0xFF0F172A),
+                shape: const RoundedRectangleBorder(
+                  borderRadius: BorderRadius.vertical(top: Radius.circular(24)),
+                ),
+                builder: (ctx) {
+                  return Padding(
+                    padding: const EdgeInsets.symmetric(horizontal: 32, vertical: 20),
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        const Text(
+                          "اختر التطبيقات لإضافتها للشريط الرئيسي",
+                          style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold, color: Colors.white),
+                        ),
+                        const SizedBox(height: 16),
+                        Expanded(
+                          child: GridView.builder(
+                            gridDelegate: const SliverGridDelegateWithFixedCrossAxisCount(
+                              crossAxisCount: 6,
+                              crossAxisSpacing: 16,
+                              mainAxisSpacing: 16,
+                              childAspectRatio: 0.9,
+                            ),
+                            itemCount: _allInstalledApps.length,
+                            itemBuilder: (context, i) {
+                              final app = _allInstalledApps[i];
+                              final isFav = _favoriteApps.any((a) => a.packageName == app.packageName);
+                              return Focus(
+                                child: Builder(builder: (c) {
+                                  final hasFoc = Focus.of(c).hasFocus;
+                                  return InkWell(
+                                    onTap: () {
+                                      if (isFav) {
+                                        final idx = _favoriteApps.indexWhere((a) => a.packageName == app.packageName);
+                                        if (idx != -1) _removeApp(idx);
+                                      } else {
+                                        _addAppToFav(app);
+                                      }
+                                      Navigator.pop(ctx);
+                                    },
+                                    child: AnimatedContainer(
+                                      duration: const Duration(milliseconds: 140),
+                                      decoration: BoxDecoration(
+                                        color: hasFoc ? Colors.white24 : Colors.white10,
+                                        borderRadius: BorderRadius.circular(16),
+                                        border: Border.all(
+                                          color: hasFoc ? const Color(0xFF38BDF8) : (isFav ? Colors.greenAccent : Colors.transparent),
+                                          width: 2,
+                                        ),
+                                      ),
+                                      child: Column(
+                                        mainAxisAlignment: MainAxisAlignment.center,
+                                        children: [
+                                          if (app.icon != null)
+                                            Image.memory(app.icon!, width: 42, height: 42)
+                                          else
+                                            const Icon(Icons.android, size: 42, color: Colors.white),
+                                          const SizedBox(height: 6),
+                                          Text(
+                                            app.name,
+                                            maxLines: 1,
+                                            overflow: TextOverflow.ellipsis,
+                                            style: const TextStyle(fontSize: 11),
+                                          ),
+                                          const SizedBox(height: 2),
+                                          Icon(
+                                            isFav ? Icons.check_circle : Icons.add_circle_outline,
+                                            size: 16,
+                                            color: isFav ? Colors.greenAccent : Colors.white60,
+                                          ),
+                                        ],
+                                      ),
+                                    ),
+                                  );
+                                }),
+                              );
+                            },
+                          ),
+                        ),
+                      ],
+                    ),
+                  );
+                },
+              );
             }
 
             Future<void> _fetchPrayerTimes() async {
@@ -185,16 +409,16 @@ jobs:
               } catch (_) {}
             }
 
-            List<Color> _getTimeGradient() {
+            String _getDynamicBackground() {
               final h = _currentTime.hour;
               if (h >= 5 && h < 11) {
-                return [const Color(0xFF1E3A8A), const Color(0xFF0F172A)];
-              } else if (h >= 11 && h < 17) {
-                return [const Color(0xFF0369A1), const Color(0xFF0C4A6E)];
-              } else if (h >= 17 && h < 19) {
-                return [const Color(0xFF7C2D12), const Color(0xFF1E1B4B)];
+                return "https://images.unsplash.com/photo-1470252649378-9c29740c9fa8?auto=format&fit=crop&w=1920&q=80";
+              } else if (h >= 11 && h < 16) {
+                return "https://images.unsplash.com/photo-1506744038136-46273834b3fb?auto=format&fit=crop&w=1920&q=80";
+              } else if (h >= 16 && h < 19) {
+                return "https://images.unsplash.com/photo-1518709268805-4e9042af9f23?auto=format&fit=crop&w=1920&q=80";
               } else {
-                return [const Color(0xFF0F172A), const Color(0xFF020617)];
+                return "https://images.unsplash.com/photo-1507525428034-b723cf961d3e?auto=format&fit=crop&w=1920&q=80";
               }
             }
 
@@ -205,167 +429,309 @@ jobs:
               final dateStr = DateFormat('EEEE، d MMMM', 'ar').format(_currentTime);
 
               return Scaffold(
-                body: AnimatedContainer(
-                  duration: const Duration(seconds: 2),
-                  decoration: BoxDecoration(
-                    gradient: LinearGradient(
-                      begin: Alignment.topRight,
-                      end: Alignment.bottomLeft,
-                      colors: _getTimeGradient(),
-                    ),
-                  ),
-                  child: SafeArea(
-                    child: Padding(
-                      padding: const EdgeInsets.symmetric(horizontal: 40, vertical: 24),
-                      child: Column(
-                        crossAxisAlignment: CrossAxisAlignment.start,
-                        children: [
-                          Row(
-                            crossAxisAlignment: CrossAxisAlignment.start,
-                            mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                            children: [
-                              Column(
-                                crossAxisAlignment: CrossAxisAlignment.start,
-                                children: [
-                                  Row(
-                                    crossAxisAlignment: CrossAxisAlignment.baseline,
-                                    textBaseline: TextBaseline.alphabetic,
-                                    children: [
-                                      Text(
-                                        timeStr,
-                                        style: const TextStyle(
-                                          fontSize: 54,
-                                          fontWeight: FontWeight.bold,
-                                          color: Colors.white,
-                                        ),
-                                      ),
-                                      const SizedBox(width: 8),
-                                      Text(
-                                        periodStr,
-                                        style: const TextStyle(fontSize: 20, color: Colors.white70),
-                                      ),
-                                    ],
-                                  ),
-                                  Text(
-                                    dateStr,
-                                    style: const TextStyle(fontSize: 16, color: Colors.white60),
-                                  ),
-                                  const SizedBox(height: 4),
-                                  const Text(
-                                    "MF Launcher",
-                                    style: TextStyle(fontSize: 13, color: Colors.white38, letterSpacing: 1.1),
-                                  ),
-                                ],
-                              ),
-                              Container(
-                                padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 10),
-                                decoration: BoxDecoration(
-                                  color: Colors.black.withOpacity(0.35),
-                                  borderRadius: BorderRadius.circular(16),
-                                  border: Border.all(color: Colors.white10),
-                                ),
-                                child: Row(
-                                  children: _prayerTimes.entries.map((entry) {
-                                    return Padding(
-                                      padding: const EdgeInsets.symmetric(horizontal: 8),
-                                      child: Column(
-                                        mainAxisSize: MainAxisSize.min,
-                                        children: [
-                                          Text(
-                                            entry.key,
-                                            style: const TextStyle(fontSize: 11, color: Colors.white60),
-                                          ),
-                                          const SizedBox(height: 3),
-                                          Text(
-                                            entry.value,
-                                            style: const TextStyle(
-                                              fontSize: 13,
-                                              fontWeight: FontWeight.bold,
-                                              color: Color(0xFF38BDF8),
-                                            ),
-                                          ),
-                                        ],
-                                      ),
-                                    );
-                                  }).toList(),
-                                ),
-                              ),
-                            ],
-                          ),
-                          const Spacer(),
-                          const Text(
-                            "التطبيقات المفضلة",
-                            style: TextStyle(
-                              fontSize: 17,
-                              fontWeight: FontWeight.bold,
-                              color: Colors.white70,
+                body: Stack(
+                  children: [
+                    Positioned.fill(
+                      child: Image.network(
+                        _getDynamicBackground(),
+                        fit: BoxFit.cover,
+                        errorBuilder: (ctx, _, __) => Container(
+                          decoration: const BoxDecoration(
+                            gradient: LinearGradient(
+                              colors: [Color(0xFF0F172A), Color(0xFF020617)],
                             ),
                           ),
-                          const SizedBox(height: 14),
-                          SizedBox(
-                            height: 125,
-                            child: ListView.builder(
-                              scrollDirection: Axis.horizontal,
-                              itemCount: _apps.length,
-                              itemBuilder: (context, index) {
-                                final app = _apps[index];
-                                return Focus(
-                                  child: Builder(builder: (ctx) {
-                                    final isFocused = Focus.of(ctx).hasFocus;
-                                    return AnimatedContainer(
-                                      duration: const Duration(milliseconds: 180),
-                                      width: 115,
-                                      margin: const EdgeInsets.only(right: 14),
-                                      transform: isFocused
-                                          ? (Matrix4.identity()..scale(1.08))
-                                          : Matrix4.identity(),
-                                      decoration: BoxDecoration(
-                                        color: isFocused
-                                            ? Colors.white.withOpacity(0.25)
-                                            : Colors.black.withOpacity(0.3),
-                                        borderRadius: BorderRadius.circular(20),
-                                        border: Border.all(
-                                          color: isFocused
-                                              ? const Color(0xFF38BDF8)
-                                              : Colors.white12,
-                                          width: isFocused ? 2.5 : 1,
-                                        ),
-                                        boxShadow: isFocused
-                                            ? [
-                                                BoxShadow(
-                                                  color: const Color(0xFF38BDF8).withOpacity(0.4),
-                                                  blurRadius: 15,
-                                                  spreadRadius: 1,
-                                                )
-                                              ]
-                                            : [],
-                                      ),
-                                      child: Column(
-                                        mainAxisAlignment: MainAxisAlignment.center,
-                                        children: [
-                                          Icon(app['icon'], size: 42, color: app['color']),
-                                          const SizedBox(height: 8),
-                                          Text(
-                                            app['name'],
-                                            style: const TextStyle(
-                                              fontSize: 12,
-                                              fontWeight: FontWeight.w500,
-                                              color: Colors.white,
-                                            ),
-                                          ),
-                                        ],
-                                      ),
-                                    );
-                                  }),
-                                );
-                              },
-                            ),
-                          ),
-                          const SizedBox(height: 10),
-                        ],
+                        ),
                       ),
                     ),
-                  ),
+                    Positioned.fill(
+                      child: Container(
+                        color: Colors.black.withOpacity(0.55),
+                      ),
+                    ),
+                    SafeArea(
+                      child: Padding(
+                        padding: const EdgeInsets.symmetric(horizontal: 44, vertical: 20),
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            // الشريط العلوي
+                            Row(
+                              crossAxisAlignment: CrossAxisAlignment.center,
+                              children: [
+                                Row(
+                                  crossAxisAlignment: CrossAxisAlignment.baseline,
+                                  textBaseline: TextBaseline.alphabetic,
+                                  children: [
+                                    Text(
+                                      timeStr,
+                                      style: const TextStyle(
+                                        fontSize: 52,
+                                        fontWeight: FontWeight.bold,
+                                        color: Colors.white,
+                                        shadows: [Shadow(color: Colors.black, blurRadius: 10)],
+                                      ),
+                                    ),
+                                    const SizedBox(width: 8),
+                                    Text(
+                                      periodStr,
+                                      style: const TextStyle(fontSize: 20, color: Colors.white70),
+                                    ),
+                                  ],
+                                ),
+                                const SizedBox(width: 22),
+                                Column(
+                                  crossAxisAlignment: CrossAxisAlignment.start,
+                                  children: [
+                                    Text(dateStr, style: const TextStyle(fontSize: 15, color: Colors.white70)),
+                                    const Text(
+                                      "Luban TV • سلطنة عُمان",
+                                      style: TextStyle(
+                                        fontSize: 13,
+                                        color: Color(0xFF38BDF8),
+                                        fontWeight: FontWeight.bold,
+                                        letterSpacing: 1.1,
+                                      ),
+                                    ),
+                                  ],
+                                ),
+                                const Spacer(),
+                                Container(
+                                  padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+                                  decoration: BoxDecoration(
+                                    color: Colors.black.withOpacity(0.58),
+                                    borderRadius: BorderRadius.circular(18),
+                                    border: Border.all(color: Colors.white24),
+                                  ),
+                                  child: Row(
+                                    mainAxisSize: MainAxisSize.min,
+                                    children: _prayerTimes.entries.map((entry) {
+                                      return Padding(
+                                        padding: const EdgeInsets.symmetric(horizontal: 8),
+                                        child: Column(
+                                          mainAxisSize: MainAxisSize.min,
+                                          children: [
+                                            Text(entry.key, style: const TextStyle(fontSize: 11, color: Colors.white70)),
+                                            const SizedBox(height: 3),
+                                            Text(
+                                              entry.value,
+                                              style: const TextStyle(
+                                                fontSize: 14,
+                                                fontWeight: FontWeight.bold,
+                                                color: Color(0xFF38BDF8),
+                                              ),
+                                            ),
+                                          ],
+                                        ),
+                                      );
+                                    }).toList(),
+                                  ),
+                                ),
+                              ],
+                            ),
+
+                            const Spacer(),
+
+                            // مباريات اليوم
+                            Row(
+                              children: const [
+                                Icon(Icons.sports_soccer, size: 20, color: Color(0xFF38BDF8)),
+                                SizedBox(width: 8),
+                                Text(
+                                  "مباريات اليوم",
+                                  style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold, color: Colors.white),
+                                ),
+                              ],
+                            ),
+                            const SizedBox(height: 10),
+                            SizedBox(
+                              height: 82,
+                              child: ListView.builder(
+                                scrollDirection: Axis.horizontal,
+                                itemCount: _matches.length,
+                                itemBuilder: (context, index) {
+                                  final m = _matches[index];
+                                  return Focus(
+                                    child: Builder(builder: (ctx) {
+                                      final isFocused = Focus.of(ctx).hasFocus;
+                                      return AnimatedContainer(
+                                        duration: const Duration(milliseconds: 160),
+                                        width: 235,
+                                        margin: const EdgeInsets.only(right: 16),
+                                        transform: isFocused ? (Matrix4.identity()..scale(1.06)) : Matrix4.identity(),
+                                        padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 8),
+                                        decoration: BoxDecoration(
+                                          color: isFocused ? const Color(0xFF1E293B).withOpacity(0.95) : Colors.black.withOpacity(0.55),
+                                          borderRadius: BorderRadius.circular(16),
+                                          border: Border.all(
+                                            color: isFocused ? const Color(0xFF38BDF8) : Colors.white12,
+                                            width: isFocused ? 2.5 : 1,
+                                          ),
+                                          boxShadow: isFocused
+                                              ? [BoxShadow(color: const Color(0xFF38BDF8).withOpacity(0.4), blurRadius: 16, spreadRadius: 1)]
+                                              : [],
+                                        ),
+                                        child: Column(
+                                          mainAxisAlignment: MainAxisAlignment.center,
+                                          children: [
+                                            Text(
+                                              m['league']!,
+                                              style: const TextStyle(fontSize: 11, color: Color(0xFF38BDF8), fontWeight: FontWeight.bold),
+                                            ),
+                                            const SizedBox(height: 5),
+                                            Row(
+                                              mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                                              children: [
+                                                Expanded(
+                                                  child: Text(
+                                                    m['teamA']!,
+                                                    textAlign: TextAlign.center,
+                                                    style: const TextStyle(fontSize: 12, fontWeight: FontWeight.bold),
+                                                    overflow: TextOverflow.ellipsis,
+                                                  ),
+                                                ),
+                                                Container(
+                                                  padding: const EdgeInsets.symmetric(horizontal: 7, vertical: 2),
+                                                  decoration: BoxDecoration(color: Colors.white12, borderRadius: BorderRadius.circular(6)),
+                                                  child: Text(
+                                                    m['time']!,
+                                                    style: const TextStyle(fontSize: 10, color: Colors.amberAccent, fontWeight: FontWeight.bold),
+                                                  ),
+                                                ),
+                                                Expanded(
+                                                  child: Text(
+                                                    m['teamB']!,
+                                                    textAlign: TextAlign.center,
+                                                    style: const TextStyle(fontSize: 12, fontWeight: FontWeight.bold),
+                                                    overflow: TextOverflow.ellipsis,
+                                                  ),
+                                                ),
+                                              ],
+                                            ),
+                                          ],
+                                        ),
+                                      );
+                                    }),
+                                  );
+                                },
+                              ),
+                            ),
+
+                            const SizedBox(height: 18),
+
+                            // شريط التطبيقات القابل للتخصيص
+                            Row(
+                              children: [
+                                const Text(
+                                  "التطبيقات المفضلة",
+                                  style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold, color: Colors.white),
+                                ),
+                                const SizedBox(width: 12),
+                                Text(
+                                  "(اضغط مطولاً بالريموت للترتيب أو الحذف)",
+                                  style: TextStyle(fontSize: 12, color: Colors.white.withOpacity(0.5)),
+                                ),
+                              ],
+                            ),
+                            const SizedBox(height: 12),
+                            SizedBox(
+                              height: 125,
+                              child: _loadingApps
+                                  ? const Center(child: CircularProgressIndicator())
+                                  : ListView.builder(
+                                      scrollDirection: Axis.horizontal,
+                                      itemCount: _favoriteApps.length + 1,
+                                      itemBuilder: (context, index) {
+                                        // الزر الأخير: إضافة تطبيقات
+                                        if (index == _favoriteApps.length) {
+                                          return Focus(
+                                            child: Builder(builder: (ctx) {
+                                              final isFocused = Focus.of(ctx).hasFocus;
+                                              return GestureDetector(
+                                                onTap: _openAllAppsModal,
+                                                child: AnimatedContainer(
+                                                  duration: const Duration(milliseconds: 160),
+                                                  width: 110,
+                                                  margin: const EdgeInsets.only(right: 16),
+                                                  transform: isFocused ? (Matrix4.identity()..scale(1.08)) : Matrix4.identity(),
+                                                  decoration: BoxDecoration(
+                                                    color: isFocused ? const Color(0xFF1E293B).withOpacity(0.95) : Colors.black.withOpacity(0.4),
+                                                    borderRadius: BorderRadius.circular(18),
+                                                    border: Border.all(
+                                                      color: isFocused ? const Color(0xFF38BDF8) : Colors.white24,
+                                                      width: isFocused ? 2.5 : 1,
+                                                    ),
+                                                  ),
+                                                  child: Column(
+                                                    mainAxisAlignment: MainAxisAlignment.center,
+                                                    children: const [
+                                                      Icon(Icons.add_rounded, size: 40, color: Color(0xFF38BDF8)),
+                                                      SizedBox(height: 6),
+                                                      Text("تخصيص", style: TextStyle(fontSize: 12, color: Colors.white70)),
+                                                    ],
+                                                  ),
+                                                ),
+                                              );
+                                            }),
+                                          );
+                                        }
+
+                                        final app = _favoriteApps[index];
+                                        return Focus(
+                                          child: Builder(builder: (ctx) {
+                                            final isFocused = Focus.of(ctx).hasFocus;
+                                            return GestureDetector(
+                                              onTap: () => InstalledApps.startApp(app.packageName),
+                                              onLongPress: () => _showAppOptionsDialog(index),
+                                              child: AnimatedContainer(
+                                                duration: const Duration(milliseconds: 160),
+                                                width: 115,
+                                                margin: const EdgeInsets.only(right: 16),
+                                                transform: isFocused ? (Matrix4.identity()..scale(1.08)) : Matrix4.identity(),
+                                                decoration: BoxDecoration(
+                                                  color: isFocused ? const Color(0xFF1E293B).withOpacity(0.95) : Colors.black.withOpacity(0.55),
+                                                  borderRadius: BorderRadius.circular(18),
+                                                  border: Border.all(
+                                                    color: isFocused ? const Color(0xFF38BDF8) : Colors.white12,
+                                                    width: isFocused ? 2.5 : 1,
+                                                  ),
+                                                  boxShadow: isFocused
+                                                      ? [BoxShadow(color: const Color(0xFF38BDF8).withOpacity(0.45), blurRadius: 18, spreadRadius: 2)]
+                                                      : [],
+                                                ),
+                                                child: Column(
+                                                  mainAxisAlignment: MainAxisAlignment.center,
+                                                  children: [
+                                                    if (app.icon != null)
+                                                      Image.memory(app.icon!, width: 44, height: 44)
+                                                    else
+                                                      const Icon(Icons.tv_rounded, size: 44, color: Colors.white70),
+                                                    const SizedBox(height: 8),
+                                                    Padding(
+                                                      padding: const EdgeInsets.symmetric(horizontal: 6),
+                                                      child: Text(
+                                                        app.name,
+                                                        maxLines: 1,
+                                                        overflow: TextOverflow.ellipsis,
+                                                        textAlign: TextAlign.center,
+                                                        style: const TextStyle(fontSize: 11, fontWeight: FontWeight.w600, color: Colors.white),
+                                                      ),
+                                                    ),
+                                                  ],
+                                                ),
+                                              ),
+                                            );
+                                          }),
+                                        );
+                                      },
+                                    ),
+                            ),
+                            const SizedBox(height: 6),
+                          ],
+                        ),
+                      ),
+                    ),
+                  ],
                 ),
               );
             }
@@ -373,10 +739,12 @@ jobs:
           EOF
 
       - name: Build APK Debug
-        run: flutter build apk --debug
+        run: |
+          flutter build apk --debug
+          cp build/app/outputs/flutter-apk/app-debug.apk build/app/outputs/flutter-apk/Luban-TV.apk
 
       - name: Upload APK
         uses: actions/upload-artifact@v4
         with:
-          name: MF-Launcher-v1.1.1-Mohammed-Fadhil
-          path: build/app/outputs/flutter-apk/app-debug.apk
+          name: Luban-TV-v1.5.0
+          path: build/app/outputs/flutter-apk/Luban-TV.apk
