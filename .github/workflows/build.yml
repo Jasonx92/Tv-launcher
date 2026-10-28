@@ -26,12 +26,33 @@ jobs:
       - name: Setup Android TV Project
         run: |
           find . -maxdepth 1 ! -name '.' ! -name '.git' ! -name '.github' -exec rm -rf {} +
-          flutter create --org com.omantv --project-name tv_launcher --platforms=android .
+          flutter create --org com.mflauncher --project-name tv_launcher --platforms=android .
           yes | flutter doctor --android-licenses || true
 
-          # رفع minSdkVersion إلى 21 لتوافق أجهزة التلفزيون ومكتبات أندرويد
           sed -i 's/minSdkVersion = flutter.minSdkVersion/minSdkVersion = 21/g' android/app/build.gradle || true
           sed -i 's/minSdkVersion flutter.minSdkVersion/minSdkVersion 21/g' android/app/build.gradle || true
+
+      - name: Configure Pubspec
+        run: |
+          cat << 'EOF' > pubspec.yaml
+          name: tv_launcher
+          description: "MF Launcher"
+          publish_to: "none"
+          version: 1.1.0+2
+
+          environment:
+            sdk: ">=3.0.0 <4.0.0"
+
+          dependencies:
+            flutter:
+              sdk: flutter
+            intl: ^0.19.0
+            http: ^1.2.0
+
+          flutter:
+            uses-material-design: true
+          EOF
+          flutter pub get
 
       - name: Configure Android TV Manifest
         run: |
@@ -40,9 +61,8 @@ jobs:
               <uses-feature android:name="android.software.leanback" android:required="false" />
               <uses-feature android:name="android.hardware.touchscreen" android:required="false" />
               <uses-permission android:name="android.permission.INTERNET" />
-              <uses-permission android:name="android.permission.QUERY_ALL_PACKAGES" />
               <application
-                  android:label="Oman TV Launcher"
+                  android:label="MF Launcher"
                   android:name="${applicationName}"
                   android:icon="@mipmap/ic_launcher">
                   <activity
@@ -75,7 +95,10 @@ jobs:
         run: |
           cat << 'EOF' > lib/main.dart
           import 'dart:async';
+          import 'dart:convert';
           import 'package:flutter/material.dart';
+          import 'package:http/http.dart' as http;
+          import 'package:intl/intl.dart';
 
           void main() {
             WidgetsFlutterBinding.ensureInitialized();
@@ -88,10 +111,10 @@ jobs:
             Widget build(BuildContext context) {
               return MaterialApp(
                 debugShowCheckedModeBanner: false,
-                title: 'Oman TV Launcher',
+                title: 'MF Launcher',
                 theme: ThemeData(
                   brightness: Brightness.dark,
-                  scaffoldBackgroundColor: const Color(0xFF0F1016),
+                  fontFamily: 'sans-serif',
                 ),
                 home: const TVHomeScreen(),
               );
@@ -107,13 +130,21 @@ jobs:
           class _TVHomeScreenState extends State<TVHomeScreen> {
             DateTime _currentTime = DateTime.now();
             Timer? _timer;
+            Map<String, String> _prayerTimes = {
+              'الفجر': '--:--',
+              'الظهر': '--:--',
+              'العصر': '--:--',
+              'المغرب': '--:--',
+              'العشاء': '--:--',
+            };
 
-            final List<Map<String, dynamic>> _quickApps = [
-              {'name': 'YouTube', 'icon': Icons.play_circle_fill, 'color': Colors.red},
-              {'name': 'Netflix', 'icon': Icons.movie_creation, 'color': Colors.redAccent},
-              {'name': 'Media Player', 'icon': Icons.video_library, 'color': Colors.orange},
-              {'name': 'Live TV', 'icon': Icons.live_tv, 'color': Colors.blue},
-              {'name': 'Settings', 'icon': Icons.settings, 'color': Colors.grey},
+            final List<Map<String, dynamic>> _apps = [
+              {'name': 'YouTube', 'icon': Icons.play_arrow_rounded, 'color': Colors.red},
+              {'name': 'Netflix', 'icon': Icons.movie_filter_rounded, 'color': Colors.redAccent},
+              {'name': 'القرآن الكريم', 'icon': Icons.menu_book_rounded, 'color': Colors.green},
+              {'name': 'البث المباشر', 'icon': Icons.live_tv_rounded, 'color': Colors.blueAccent},
+              {'name': 'الملفات', 'icon': Icons.folder_rounded, 'color': Colors.amber},
+              {'name': 'الإعدادات', 'icon': Icons.settings_rounded, 'color': Colors.grey},
             ];
 
             @override
@@ -122,6 +153,7 @@ jobs:
               _timer = Timer.periodic(const Duration(seconds: 1), (_) {
                 if (mounted) setState(() => _currentTime = DateTime.now());
               });
+              _fetchPrayerTimes();
             }
 
             @override
@@ -130,104 +162,195 @@ jobs:
               super.dispose();
             }
 
+            Future<void> _fetchPrayerTimes() async {
+              try {
+                final res = await http.get(Uri.parse(
+                    'https://api.aladhan.com/v1/timingsByCity?city=Salalah&country=Oman&method=4'));
+                if (res.statusCode == 200) {
+                  final data = json.decode(res.body)['data']['timings'];
+                  if (mounted) {
+                    setState(() {
+                      _prayerTimes = {
+                        'الفجر': data['Fajr'],
+                        'الظهر': data['Dhuhr'],
+                        'العصر': data['Asr'],
+                        'المغرب': data['Maghrib'],
+                        'العشاء': data['Isha'],
+                      };
+                    });
+                  }
+                }
+              } catch (_) {}
+            }
+
+            List<Color> _getTimeGradient() {
+              final h = _currentTime.hour;
+              if (h >= 5 && h < 11) {
+                return [const Color(0xFF1E3A8A), const Color(0xFF0F172A)];
+              } else if (h >= 11 && h < 17) {
+                return [const Color(0xFF0369A1), const Color(0xFF0C4A6E)];
+              } else if (h >= 17 && h < 19) {
+                return [const Color(0xFF7C2D12), const Color(0xFF1E1B4B)];
+              } else {
+                return [const Color(0xFF0F172A), const Color(0xFF020617)];
+              }
+            }
+
             @override
             Widget build(BuildContext context) {
-              final hours = _currentTime.hour.toString().padLeft(2, '0');
-              final minutes = _currentTime.minute.toString().padLeft(2, '0');
+              final timeStr = DateFormat('hh:mm').format(_currentTime);
+              final periodStr = DateFormat('a').format(_currentTime) == 'AM' ? 'ص' : 'م';
+              final dateStr = DateFormat('EEEE، d MMMM', 'ar').format(_currentTime);
 
               return Scaffold(
-                body: Container(
-                  decoration: const BoxDecoration(
+                body: AnimatedContainer(
+                  duration: const Duration(seconds: 2),
+                  decoration: BoxDecoration(
                     gradient: LinearGradient(
-                      begin: Alignment.topLeft,
-                      end: Alignment.bottomRight,
-                      colors: [Color(0xFF0F172A), Color(0xFF020617)],
+                      begin: Alignment.topRight,
+                      end: Alignment.bottomLeft,
+                      colors: _getTimeGradient(),
                     ),
                   ),
                   child: SafeArea(
                     child: Padding(
-                      padding: const EdgeInsets.symmetric(horizontal: 50, vertical: 30),
+                      padding: const EdgeInsets.symmetric(horizontal: 40, vertical: 24),
                       child: Column(
                         crossAxisAlignment: CrossAxisAlignment.start,
                         children: [
                           Row(
+                            crossAxisAlignment: CrossAxisAlignment.start,
                             mainAxisAlignment: MainAxisAlignment.spaceBetween,
                             children: [
                               Column(
                                 crossAxisAlignment: CrossAxisAlignment.start,
                                 children: [
-                                  Text(
-                                    "$hours:$minutes",
-                                    style: const TextStyle(fontSize: 64, fontWeight: FontWeight.bold, color: Colors.white),
+                                  Row(
+                                    crossAxisAlignment: CrossAxisAlignment.baseline,
+                                    textBaseline: TextBaseline.alphabetic,
+                                    children: [
+                                      Text(
+                                        timeStr,
+                                        style: const TextStyle(
+                                          fontSize: 54,
+                                          fontWeight: FontWeight.bold,
+                                          color: Colors.white,
+                                        ),
+                                      ),
+                                      const SizedBox(width: 8),
+                                      Text(
+                                        periodStr,
+                                        style: const TextStyle(fontSize: 20, color: Colors.white70),
+                                      ),
+                                    ],
                                   ),
+                                  Text(
+                                    dateStr,
+                                    style: const TextStyle(fontSize: 16, color: Colors.white60),
+                                  ),
+                                  const SizedBox(height: 4),
                                   const Text(
-                                    "Oman TV Launcher",
-                                    style: TextStyle(fontSize: 18, color: Colors.white70, letterSpacing: 1.2),
+                                    "MF Launcher",
+                                    style: TextStyle(fontSize: 13, color: Colors.white38, letterSpacing: 1.1),
                                   ),
                                 ],
                               ),
-                              IconButton(
-                                icon: const Icon(Icons.info_outline, size: 30, color: Colors.white70),
-                                onPressed: () {
-                                  showDialog(
-                                    context: context,
-                                    builder: (_) => AlertDialog(
-                                      backgroundColor: const Color(0xFF1E293B),
-                                      title: const Text("معلومات التطبيق", style: TextStyle(color: Colors.white)),
-                                      content: const Column(
+                              Container(
+                                padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 10),
+                                decoration: BoxDecoration(
+                                  color: Colors.black.withOpacity(0.35),
+                                  borderRadius: BorderRadius.circular(16),
+                                  border: Border.all(color: Colors.white10),
+                                ),
+                                child: Row(
+                                  children: _prayerTimes.entries.map((entry) {
+                                    return Padding(
+                                      padding: const EdgeInsets.symmetric(horizontal: 8),
+                                      child: Column(
                                         mainAxisSize: MainAxisSize.min,
-                                        crossAxisAlignment: CrossAxisAlignment.start,
                                         children: [
-                                          Text("الاسم: Oman TV Launcher", style: TextStyle(color: Colors.white70)),
-                                          SizedBox(height: 6),
-                                          Text("الإصدار: v1.0.0", style: TextStyle(color: Colors.white70)),
-                                          SizedBox(height: 6),
-                                          Text("المطور: Mohammed Fadhil", style: TextStyle(color: Color(0xFF38BDF8), fontWeight: FontWeight.bold)),
+                                          Text(
+                                            entry.key,
+                                            style: const TextStyle(fontSize: 11, color: Colors.white60),
+                                          ),
+                                          const SizedBox(height: 3),
+                                          Text(
+                                            entry.value,
+                                            style: const TextStyle(
+                                              fontSize: 13,
+                                              fontWeight: FontWeight.bold,
+                                              color: Color(0xFF38BDF8),
+                                            ),
+                                          ),
                                         ],
                                       ),
-                                      actions: [
-                                        TextButton(onPressed: () => Navigator.pop(context), child: const Text("إغلاق"))
-                                      ],
-                                    ),
-                                  );
-                                },
+                                    );
+                                  }).toList(),
+                                ),
                               ),
                             ],
                           ),
                           const Spacer(),
                           const Text(
-                            "التطبيقات الرئيسية",
-                            style: TextStyle(color: Colors.white60, fontSize: 16, fontWeight: FontWeight.bold),
+                            "التطبيقات المفضلة",
+                            style: TextStyle(
+                              fontSize: 17,
+                              fontWeight: FontWeight.bold,
+                              color: Colors.white70,
+                            ),
                           ),
                           const SizedBox(height: 14),
                           SizedBox(
-                            height: 120,
+                            height: 125,
                             child: ListView.builder(
                               scrollDirection: Axis.horizontal,
-                              itemCount: _quickApps.length,
+                              itemCount: _apps.length,
                               itemBuilder: (context, index) {
-                                final app = _quickApps[index];
+                                final app = _apps[index];
                                 return Focus(
                                   child: Builder(builder: (ctx) {
                                     final isFocused = Focus.of(ctx).hasFocus;
                                     return AnimatedContainer(
-                                      duration: const Duration(milliseconds: 150),
-                                      width: 120,
-                                      margin: const EdgeInsets.only(right: 16),
+                                      duration: const Duration(milliseconds: 180),
+                                      width: 115,
+                                      margin: const EdgeInsets.only(right: 14),
+                                      transform: isFocused
+                                          ? (Matrix4.identity()..scale(1.08))
+                                          : Matrix4.identity(),
                                       decoration: BoxDecoration(
-                                        color: isFocused ? Colors.white.withOpacity(0.2) : Colors.white.withOpacity(0.06),
-                                        borderRadius: BorderRadius.circular(18),
+                                        color: isFocused
+                                            ? Colors.white.withOpacity(0.25)
+                                            : Colors.black.withOpacity(0.3),
+                                        borderRadius: BorderRadius.circular(20),
                                         border: Border.all(
-                                          color: isFocused ? const Color(0xFF38BDF8) : Colors.white10,
-                                          width: isFocused ? 2 : 1,
+                                          color: isFocused
+                                              ? const Color(0xFF38BDF8)
+                                              : Colors.white12,
+                                          width: isFocused ? 2.5 : 1,
                                         ),
+                                        boxShadow: isFocused
+                                            ? [
+                                                BoxShadow(
+                                                  color: const Color(0xFF38BDF8).withOpacity(0.4),
+                                                  blurRadius: 15,
+                                                  spreadRadius: 1,
+                                                )
+                                              ]
+                                            : [],
                                       ),
                                       child: Column(
                                         mainAxisAlignment: MainAxisAlignment.center,
                                         children: [
-                                          Icon(app['icon'], size: 40, color: app['color']),
+                                          Icon(app['icon'], size: 42, color: app['color']),
                                           const SizedBox(height: 8),
-                                          Text(app['name'], style: const TextStyle(fontSize: 12, color: Colors.white)),
+                                          Text(
+                                            app['name'],
+                                            style: const TextStyle(
+                                              fontSize: 12,
+                                              fontWeight: FontWeight.w500,
+                                              color: Colors.white,
+                                            ),
+                                          ),
                                         ],
                                       ),
                                     );
@@ -253,5 +376,5 @@ jobs:
       - name: Upload APK
         uses: actions/upload-artifact@v4
         with:
-          name: Oman-TV-Launcher-v1.0.0-Mohammed-Fadhil
+          name: MF-Launcher-v1.1.0-Mohammed-Fadhil
           path: build/app/outputs/flutter-apk/app-debug.apk
