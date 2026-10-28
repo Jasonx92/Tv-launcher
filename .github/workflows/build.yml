@@ -9,33 +9,42 @@ jobs:
   build:
     runs-on: ubuntu-latest
     steps:
-      - name: Checkout code
+      - name: Checkout repository
         uses: actions/checkout@v4
 
-      - name: Set up Java
+      - name: Set up Java 17
         uses: actions/setup-java@v4
         with:
-          distribution: 'zulu'
+          distribution: 'temurin'
           java-version: '17'
 
       - name: Set up Flutter
         uses: subosito/flutter-action@v2
         with:
+          flutter-version: '3.19.6'
           channel: 'stable'
 
-      - name: Initialize TV Project
+      - name: Setup Android TV Project
         run: |
-          rm -rf *
-          flutter create --org com.omantv --project-name tv_launcher .
+          # تنظيف المجلد وتجهيز المشروع
+          find . -maxdepth 1 ! -name '.' ! -name '.git' ! -name '.github' -exec rm -rf {} +
+          flutter create --org com.omantv --project-name tv_launcher --platforms=android .
+          
+          # قبول تراخيص الأندرويد تلقائياً
+          yes | flutter doctor --android-licenses || true
+          
+          # تثبيت الحزم
           flutter pub add intl device_apps url_launcher
           
+          # تجهيز مجلد الصور
           mkdir -p assets/backgrounds
           curl -s -L -o assets/backgrounds/noon.jpg "https://picsum.photos/1920/1080"
           curl -s -L -o assets/backgrounds/night.jpg "https://picsum.photos/1920/1080"
           
+          # إدراج مسار الصور في pubspec.yaml
           sed -i '/flutter:/a \  assets:\n    - assets/backgrounds/' pubspec.yaml
 
-      - name: Create Leanback Manifest
+      - name: Configure Leanback Manifest
         run: |
           cat << 'EOF' > android/app/src/main/AndroidManifest.xml
           <manifest xmlns:android="http://schemas.android.com/apk/res/android">
@@ -62,7 +71,7 @@ jobs:
           </manifest>
           EOF
 
-      - name: Build APK
+      - name: Build APK Debug
         run: flutter build apk --debug
 
       - name: Upload APK
