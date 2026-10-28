@@ -37,9 +37,9 @@ jobs:
         run: |
           cat << 'EOF' > pubspec.yaml
           name: luban_tv
-          description: "Luban TV Launcher"
+          description: "Luban Ambient Smart TV Launcher"
           publish_to: "none"
-          version: 1.5.0+10
+          version: 1.6.0+11
 
           environment:
             sdk: ">=3.0.0 <4.0.0"
@@ -52,10 +52,32 @@ jobs:
             installed_apps: ^2.1.1
             shared_preferences: ^2.2.3
 
+          dev_dependencies:
+            flutter_launcher_icons: ^0.13.1
+
+          flutter_launcher_icons:
+            android: true
+            image_path: "assets/icon/app_icon.png"
+            adaptive_icon_background: "#0F172A"
+            adaptive_icon_foreground: "assets/icon/app_icon.png"
+
           flutter:
             uses-material-design: true
           EOF
           flutter pub get
+
+      - name: Add Icon and TV Banner Resources
+        run: |
+          mkdir -p assets/icon
+          # تحميل الأيقونة الفخمة المعتمدة
+          curl -s -L -o assets/icon/app_icon.png "https://images.unsplash.com/photo-1618005182384-a83a8bd57fbe?auto=format&fit=crop&w=512&h=512&q=80"
+          
+          # توليد الأيقونات لجميع المقاسات
+          flutter pub run flutter_launcher_icons
+
+          # إنشاء مجلدات المصادر الخاصة بأندرويد TV وبانر الشاشة الرئيسية
+          mkdir -p android/app/src/main/res/drawable-xhdpi
+          curl -s -L -o android/app/src/main/res/drawable-xhdpi/ic_launcher_banner.png "https://images.unsplash.com/photo-1618005182384-a83a8bd57fbe?auto=format&fit=crop&w=320&h=180&q=80"
 
       - name: Configure Android TV Manifest
         run: |
@@ -69,7 +91,7 @@ jobs:
               <application
                   android:label="Luban TV"
                   android:name="${applicationName}"
-                  android:banner="@mipmap/ic_launcher"
+                  android:banner="@drawable/ic_launcher_banner"
                   android:icon="@mipmap/ic_launcher">
                   <activity
                       android:name=".MainActivity"
@@ -270,7 +292,7 @@ jobs:
                       if (index > 0)
                         ListTile(
                           leading: const Icon(Icons.arrow_back, color: Color(0xFF38BDF8)),
-                          title: const Text("تحريك لليسار"),
+                          title: const Text("تحريك ليساراً"),
                           onTap: () {
                             Navigator.pop(ctx);
                             _moveApp(index, index - 1);
@@ -287,7 +309,7 @@ jobs:
                         ),
                       ListTile(
                         leading: const Icon(Icons.delete_outline, color: Colors.redAccent),
-                        title: const Text("إزالة من الشريط الرئيسي", style: TextStyle(color: Colors.redAccent)),
+                        title: const Text("إزالة من المفضلة", style: TextStyle(color: Colors.redAccent)),
                         onTap: () {
                           Navigator.pop(ctx);
                           _removeApp(index);
@@ -313,7 +335,7 @@ jobs:
                       crossAxisAlignment: CrossAxisAlignment.start,
                       children: [
                         const Text(
-                          "اختر التطبيقات لإضافتها للشريط الرئيسي",
+                          "تخصيص المفضلة",
                           style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold, color: Colors.white),
                         ),
                         const SizedBox(height: 16),
@@ -455,7 +477,6 @@ jobs:
                         child: Column(
                           crossAxisAlignment: CrossAxisAlignment.start,
                           children: [
-                            // الشريط العلوي
                             Row(
                               crossAxisAlignment: CrossAxisAlignment.center,
                               children: [
@@ -485,7 +506,7 @@ jobs:
                                   children: [
                                     Text(dateStr, style: const TextStyle(fontSize: 15, color: Colors.white70)),
                                     const Text(
-                                      "Luban TV • سلطنة عُمان",
+                                      "Luban TV • لبان",
                                       style: TextStyle(
                                         fontSize: 13,
                                         color: Color(0xFF38BDF8),
@@ -532,7 +553,6 @@ jobs:
 
                             const Spacer(),
 
-                            // مباريات اليوم
                             Row(
                               children: const [
                                 Icon(Icons.sports_soccer, size: 20, color: Color(0xFF38BDF8)),
@@ -619,7 +639,6 @@ jobs:
 
                             const SizedBox(height: 18),
 
-                            // شريط التطبيقات القابل للتخصيص
                             Row(
                               children: [
                                 const Text(
@@ -628,7 +647,7 @@ jobs:
                                 ),
                                 const SizedBox(width: 12),
                                 Text(
-                                  "(اضغط مطولاً بالريموت للترتيب أو الحذف)",
+                                  "(اضغط مطولاً بالريموت لإعادة الترتيب أو الحذف)",
                                   style: TextStyle(fontSize: 12, color: Colors.white.withOpacity(0.5)),
                                 ),
                               ],
@@ -642,7 +661,6 @@ jobs:
                                       scrollDirection: Axis.horizontal,
                                       itemCount: _favoriteApps.length + 1,
                                       itemBuilder: (context, index) {
-                                        // الزر الأخير: إضافة تطبيقات
                                         if (index == _favoriteApps.length) {
                                           return Focus(
                                             child: Builder(builder: (ctx) {
@@ -746,5 +764,5 @@ jobs:
       - name: Upload APK
         uses: actions/upload-artifact@v4
         with:
-          name: Luban-TV-v1.5.0
+          name: Luban-TV-v1.6.0
           path: build/app/outputs/flutter-apk/Luban-TV.apk
