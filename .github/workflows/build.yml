@@ -26,23 +26,39 @@ jobs:
 
       - name: Setup Android TV Project
         run: |
-          # تنظيف المجلد وتجهيز المشروع
           find . -maxdepth 1 ! -name '.' ! -name '.git' ! -name '.github' -exec rm -rf {} +
           flutter create --org com.omantv --project-name tv_launcher --platforms=android .
           
-          # قبول تراخيص الأندرويد تلقائياً
           yes | flutter doctor --android-licenses || true
-          
-          # تثبيت الحزم
-          flutter pub add intl device_apps url_launcher
-          
-          # تجهيز مجلد الصور
+
+          # كتابة pubspec.yaml بمسافات صحيحة وبدون أخطاء
+          cat << 'EOF' > pubspec.yaml
+          name: tv_launcher
+          description: "Smart Ambient Android TV Launcher"
+          publish_to: "none"
+          version: 1.0.0+1
+
+          environment:
+            sdk: ">=3.0.0 <4.0.0"
+
+          dependencies:
+            flutter:
+              sdk: flutter
+            intl: ^0.19.0
+            device_apps: ^2.2.0
+            url_launcher: ^6.3.0
+
+          flutter:
+            uses-material-design: true
+            assets:
+              - assets/backgrounds/
+          EOF
+
+          flutter pub get
+
           mkdir -p assets/backgrounds
           curl -s -L -o assets/backgrounds/noon.jpg "https://picsum.photos/1920/1080"
           curl -s -L -o assets/backgrounds/night.jpg "https://picsum.photos/1920/1080"
-          
-          # إدراج مسار الصور في pubspec.yaml
-          sed -i '/flutter:/a \  assets:\n    - assets/backgrounds/' pubspec.yaml
 
       - name: Configure Leanback Manifest
         run: |
