@@ -219,7 +219,7 @@ jobs:
               'العشاء': '--:--',
             };
 
-            final List> _matches = [
+            final List<Map<String, String>> _matches = [
               {
                 'league_ar': 'دوري أبطال أوروبا',
                 'league_en': 'UEFA Champions League',
@@ -899,10 +899,10 @@ jobs:
                                       itemCount: _matches.length,
                                       itemBuilder: (context, index) {
                                         final m = _matches[index];
-                                        final league = isEn ? m['league_en'] : m['league_ar'];
-                                        final teamA = isEn ? m['teamA_en'] : m['teamA_ar'];
-                                        final teamB = isEn ? m['teamB_en'] : m['teamB_ar'];
-                                        final mTime = isEn ? m['time_en'] : m['time_ar'];
+                                        final league = (isEn ? m['league_en'] : m['league_ar']) ?? '';
+                                        final teamA = (isEn ? m['teamA_en'] : m['teamA_ar']) ?? '';
+                                        final teamB = (isEn ? m['teamB_en'] : m['teamB_ar']) ?? '';
+                                        final mTime = (isEn ? m['time_en'] : m['time_ar']) ?? '';
 
                                         return Focus(
                                           child: Builder(builder: (ctx) {
