@@ -39,7 +39,7 @@ jobs:
           name: luban_tv
           description: "Luban Ambient Smart TV Launcher"
           publish_to: "none"
-          version: 2.1.6+25
+          version: 2.2.1+27
 
           environment:
             sdk: ">=3.0.0 <4.0.0"
@@ -135,7 +135,7 @@ jobs:
           import 'package:http/http.dart' as http;
           import 'package:installed_apps/app_info.dart';
           import 'package:installed_apps/installed_apps.dart';
-          import 'package:intl/intl.dart';
+          import 'package:intl/intl.dart' hide TextDirection;
           import 'package:intl/date_symbol_data_local.dart';
           import 'package:shared_preferences/shared_preferences.dart';
 
@@ -282,7 +282,7 @@ jobs:
 
             Future<void> _loadAppsAndFavorites() async {
               try {
-                final apps = await InstalledApps.getInstalledApps();
+                final apps = await InstalledApps.getInstalledApps(false, true);
                 final prefs = await SharedPreferences.getInstance();
                 final savedFavs = prefs.getStringList('fav_apps');
 
@@ -1084,11 +1084,11 @@ jobs:
 
       - name: Build APK Debug
         run: |
-          flutter build apk --debug --no-tree-shake-icons
+          flutter build apk --debug
           cp build/app/outputs/flutter-apk/app-debug.apk build/app/outputs/flutter-apk/Luban-TV.apk
 
       - name: Upload APK
         uses: actions/upload-artifact@v4
         with:
-          name: Luban-TV-v2.1.6
+          name: Luban-TV-v2.2.1
           path: build/app/outputs/flutter-apk/Luban-TV.apk
