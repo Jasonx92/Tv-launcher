@@ -21,7 +21,6 @@ jobs:
       - name: Set up Flutter
         uses: subosito/flutter-action@v2
         with:
-          flutter-version: '3.19.6'
           channel: 'stable'
 
       - name: Setup Android TV Project
@@ -39,7 +38,7 @@ jobs:
           name: luban_tv
           description: "Luban Ambient Smart TV Launcher"
           publish_to: "none"
-          version: 2.1.0+19
+          version: 2.1.1+20
 
           environment:
             sdk: ">=3.0.0 <4.0.0"
@@ -184,15 +183,33 @@ jobs:
               setState(() => _fontFamily = font);
             }
 
+            TextTheme _getTextTheme(TextTheme base) {
+              switch (_fontFamily) {
+                case 'Tajawal':
+                  return GoogleFonts.tajawalTextTheme(base);
+                case 'Almarai':
+                  return GoogleFonts.almaraiTextTheme(base);
+                case 'Changa':
+                  return GoogleFonts.changaTextTheme(base);
+                case 'Readex Pro':
+                  return GoogleFonts.readexProTextTheme(base);
+                case 'Amiri':
+                  return GoogleFonts.amiriTextTheme(base);
+                case 'Cairo':
+                default:
+                  return GoogleFonts.cairoTextTheme(base);
+              }
+            }
+
             @override
             Widget build(BuildContext context) {
-              final baseTextTheme = ThemeData.dark().textTheme;
+              final baseDark = ThemeData.dark().textTheme;
               return MaterialApp(
                 debugShowCheckedModeBanner: false,
                 title: 'Luban TV',
                 theme: ThemeData(
                   brightness: Brightness.dark,
-                  textTheme: GoogleFonts.getTextTheme(_fontFamily, baseTextTheme),
+                  textTheme: _getTextTheme(baseDark),
                 ),
                 home: const LubanHomeScreen(),
               );
@@ -1091,5 +1108,5 @@ jobs:
       - name: Upload APK
         uses: actions/upload-artifact@v4
         with:
-          name: Luban-TV-v2.1.0
+          name: Luban-TV-v2.1.1
           path: build/app/outputs/flutter-apk/Luban-TV.apk
