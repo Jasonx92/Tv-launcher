@@ -30,7 +30,6 @@ jobs:
           flutter create --org com.luban --project-name luban_tv --platforms=android .
           yes | flutter doctor --android-licenses || true
 
-          # ضبط إعدادات التوافق لأندرويد
           sed -i 's/minSdkVersion = flutter.minSdkVersion/minSdkVersion = 21/g' android/app/build.gradle || true
           sed -i 's/minSdkVersion flutter.minSdkVersion/minSdkVersion 21/g' android/app/build.gradle || true
 
@@ -40,7 +39,7 @@ jobs:
           name: luban_tv
           description: "Luban Ambient Smart TV Launcher"
           publish_to: "none"
-          version: 2.1.4+23
+          version: 2.1.5+24
 
           environment:
             sdk: ">=3.0.0 <4.0.0"
@@ -283,7 +282,7 @@ jobs:
 
             Future<void> _loadAppsAndFavorites() async {
               try {
-                final apps = await InstalledApps.getInstalledApps(withIcon: true, packageNamePrefix: '');
+                final apps = await InstalledApps.getInstalledApps(false, true);
                 final prefs = await SharedPreferences.getInstance();
                 final savedFavs = prefs.getStringList('fav_apps');
 
@@ -478,8 +477,15 @@ jobs:
                 context: context,
                 builder: (ctx) => AlertDialog(
                   backgroundColor: const Color(0xFF1E293B),
-                  title: Text(_selectedLanguage == 'en' ? "Exit Launcher" : "الخروج من اللانشر", style: const TextStyle(color: Colors.white, fontSize: 18)),
-                  content: Text(_selectedLanguage == 'en' ? "Do you want to close Luban TV and return to default home?" : "هل تريد إغلاق اللانشر والعودة للشاشة السابقة؟"),
+                  title: Text(
+                    _selectedLanguage == 'en' ? "Exit Launcher" : "الخروج من اللانشر",
+                    style: const TextStyle(color: Colors.white, fontSize: 18),
+                  ),
+                  content: Text(
+                    _selectedLanguage == 'en'
+                        ? "Do you want to close Luban TV and return to default home?"
+                        : "هل تريد إغلاق اللانشر والعودة للشاشة السابقة؟",
+                  ),
                   actions: [
                     TextButton(
                       onPressed: () => Navigator.pop(ctx),
@@ -506,7 +512,7 @@ jobs:
                   backgroundColor: const Color(0xFF1E293B),
                   title: Text(app.name, style: const TextStyle(color: Colors.white, fontSize: 18)),
                   content: Column(
-                    mainAxisSize: dynamicMinSize(context),
+                    mainAxisSize: MainAxisSize.min,
                     children: [
                       if (index > 0)
                         ListTile(
@@ -528,7 +534,10 @@ jobs:
                         ),
                       ListTile(
                         leading: const Icon(Icons.delete_outline, color: Colors.redAccent),
-                        title: Text(_selectedLanguage == 'en' ? "Remove from Favorites" : "إزالة من المفضلة", style: const TextStyle(color: Colors.redAccent)),
+                        title: Text(
+                          _selectedLanguage == 'en' ? "Remove from Favorites" : "إزالة من المفضلة",
+                          style: const TextStyle(color: Colors.redAccent),
+                        ),
                         onTap: () {
                           Navigator.pop(ctx);
                           _removeApp(index);
@@ -539,8 +548,6 @@ jobs:
                 ),
               );
             }
-
-            List<Widget> dynamicMinSize(BuildContext context) => [];
 
             void _openAllAppsModal() {
               showModalBottomSheet(
@@ -1083,5 +1090,5 @@ jobs:
       - name: Upload APK
         uses: actions/upload-artifact@v4
         with:
-          name: Luban-TV-v2.1.4
+          name: Luban-TV-v2.1.5
           path: build/app/outputs/flutter-apk/Luban-TV.apk
