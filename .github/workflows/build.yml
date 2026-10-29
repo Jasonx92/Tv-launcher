@@ -30,6 +30,7 @@ jobs:
           flutter create --org com.luban --project-name luban_tv --platforms=android .
           yes | flutter doctor --android-licenses || true
 
+          # ضبط إعدادات التوافق لأندرويد
           sed -i 's/minSdkVersion = flutter.minSdkVersion/minSdkVersion = 21/g' android/app/build.gradle || true
           sed -i 's/minSdkVersion flutter.minSdkVersion/minSdkVersion 21/g' android/app/build.gradle || true
 
@@ -39,7 +40,7 @@ jobs:
           name: luban_tv
           description: "Luban Ambient Smart TV Launcher"
           publish_to: "none"
-          version: 2.1.3+22
+          version: 2.1.4+23
 
           environment:
             sdk: ">=3.0.0 <4.0.0"
@@ -505,7 +506,7 @@ jobs:
                   backgroundColor: const Color(0xFF1E293B),
                   title: Text(app.name, style: const TextStyle(color: Colors.white, fontSize: 18)),
                   content: Column(
-                    mainAxisSize: MainAxisSize.min,
+                    mainAxisSize: dynamicMinSize(context),
                     children: [
                       if (index > 0)
                         ListTile(
@@ -538,6 +539,8 @@ jobs:
                 ),
               );
             }
+
+            List<Widget> dynamicMinSize(BuildContext context) => [];
 
             void _openAllAppsModal() {
               showModalBottomSheet(
@@ -1080,5 +1083,5 @@ jobs:
       - name: Upload APK
         uses: actions/upload-artifact@v4
         with:
-          name: Luban-TV-v2.1.3
+          name: Luban-TV-v2.1.4
           path: build/app/outputs/flutter-apk/Luban-TV.apk
