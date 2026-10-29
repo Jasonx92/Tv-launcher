@@ -39,7 +39,7 @@ jobs:
           name: luban_tv
           description: "Luban Ambient Smart TV Launcher"
           publish_to: "none"
-          version: 2.2.2+28
+          version: 2.3.1+30
 
           environment:
             sdk: ">=3.0.0 <4.0.0"
@@ -219,7 +219,7 @@ jobs:
               'العشاء': '--:--',
             };
 
-            final List<Map<String, dynamic>> _matches = [
+            final List> _matches = [
               {
                 'league_ar': 'دوري أبطال أوروبا',
                 'league_en': 'UEFA Champions League',
@@ -573,29 +573,31 @@ jobs:
                               crossAxisCount: 6,
                               crossAxisSpacing: 16,
                               mainAxisSpacing: 16,
-                              childAspectRatio: 0.9,
+                              childAspectRatio: 1.1,
                             ),
                             itemCount: _allInstalledApps.length,
                             itemBuilder: (context, i) {
                               final app = _allInstalledApps[i];
                               final isFav = _favoriteApps.any((a) => a.packageName == app.packageName);
-                              return Focus(
-                                child: Builder(builder: (c) {
-                                  final hasFoc = Focus.of(c).hasFocus;
-                                  return InkWell(
-                                    onTap: () {
-                                      if (isFav) {
-                                        final idx = _favoriteApps.indexWhere((a) => a.packageName == app.packageName);
-                                        if (idx != -1) _removeApp(idx);
-                                      } else {
-                                        _addAppToFav(app);
-                                      }
-                                      Navigator.pop(ctx);
-                                    },
-                                    child: AnimatedContainer(
+                              return InkWell(
+                                onTap: () {
+                                  if (isFav) {
+                                    final idx = _favoriteApps.indexWhere((a) => a.packageName == app.packageName);
+                                    if (idx != -1) _removeApp(idx);
+                                  } else {
+                                    _addAppToFav(app);
+                                  }
+                                  Navigator.pop(ctx);
+                                },
+                                borderRadius: BorderRadius.circular(16),
+                                child: Focus(
+                                  child: Builder(builder: (c) {
+                                    final hasFoc = Focus.of(c).hasFocus;
+                                    return AnimatedContainer(
                                       duration: const Duration(milliseconds: 140),
+                                      padding: const EdgeInsets.all(8),
                                       decoration: BoxDecoration(
-                                        color: hasFoc ? Colors.white24 : Colors.white10,
+                                        color: hasFoc ? const Color(0xFF1E293B) : Colors.white.withOpacity(0.08),
                                         borderRadius: BorderRadius.circular(16),
                                         border: Border.all(
                                           color: hasFoc ? const Color(0xFF38BDF8) : (isFav ? Colors.greenAccent : Colors.transparent),
@@ -606,9 +608,9 @@ jobs:
                                         mainAxisAlignment: MainAxisAlignment.center,
                                         children: [
                                           if (app.icon != null)
-                                            Image.memory(app.icon!, width: 42, height: 42)
+                                            Image.memory(app.icon!, width: 44, height: 44)
                                           else
-                                            const Icon(Icons.android, size: 42, color: Colors.white),
+                                            const Icon(Icons.android, size: 44, color: Colors.white),
                                           const SizedBox(height: 6),
                                           Text(
                                             app.name,
@@ -624,9 +626,9 @@ jobs:
                                           ),
                                         ],
                                       ),
-                                    ),
-                                  );
-                                }),
+                                    );
+                                  }),
+                                ),
                               );
                             },
                           ),
@@ -643,7 +645,8 @@ jobs:
                 final res = await http.get(Uri.parse(
                     'https://api.aladhan.com/v1/timingsByCity?city=$_selectedCity&country=Oman&method=4'));
                 if (res.statusCode == 200) {
-                  final jsonBody = json.decode(res.body)['data'];
+                  final decodedUtf8 = utf8.decode(res.bodyBytes);
+                  final jsonBody = json.decode(decodedUtf8)['data'];
                   final timings = jsonBody['timings'];
                   final hijri = jsonBody['date']['hijri'];
                   
@@ -760,6 +763,7 @@ jobs:
                           child: Column(
                             crossAxisAlignment: CrossAxisAlignment.start,
                             children: [
+                              // الشريط العلوي
                               Row(
                                 crossAxisAlignment: CrossAxisAlignment.center,
                                 children: [
@@ -770,7 +774,7 @@ jobs:
                                       Text(
                                         timeStr,
                                         style: const TextStyle(
-                                          fontSize: 52,
+                                          fontSize: 54,
                                           fontWeight: FontWeight.bold,
                                           color: Colors.white,
                                           shadows: [Shadow(color: Colors.black, blurRadius: 10)],
@@ -779,24 +783,24 @@ jobs:
                                       const SizedBox(width: 8),
                                       Text(
                                         periodStr,
-                                        style: const TextStyle(fontSize: 20, color: Colors.white70),
+                                        style: const TextStyle(fontSize: 22, color: Colors.white70),
                                       ),
                                     ],
                                   ),
-                                  const SizedBox(width: 22),
+                                  const SizedBox(width: 24),
                                   Column(
                                     crossAxisAlignment: CrossAxisAlignment.start,
                                     children: [
                                       Text(
                                         _hijriDateStr,
                                         style: const TextStyle(
-                                          fontSize: 14,
-                                          fontWeight: FontWeight.bold,
+                                          fontSize: 15,
+                                          fontWeight: FontWeight.w600,
                                           color: Color(0xFFFBBF24),
                                           shadows: [Shadow(color: Colors.black, blurRadius: 6)],
                                         ),
                                       ),
-                                      const SizedBox(height: 2),
+                                      const SizedBox(height: 3),
                                       if (!isEn)
                                         Text(dateArStr, style: const TextStyle(fontSize: 13, color: Colors.white70)),
                                       if (!isAr)
@@ -873,6 +877,7 @@ jobs:
 
                               const Spacer(),
 
+                              // مباريات اليوم (تم حل مشكلة التنقل والتعليق بربط المسارات الرأسية والأفقية)
                               if (_showMatchesBar) ...[
                                 Row(
                                   children: [
@@ -886,85 +891,93 @@ jobs:
                                 ),
                                 const SizedBox(height: 10),
                                 SizedBox(
-                                  height: 82,
-                                  child: ListView.builder(
-                                    scrollDirection: Axis.horizontal,
-                                    itemCount: _matches.length,
-                                    itemBuilder: (context, index) {
-                                      final m = _matches[index];
-                                      final league = isEn ? m['league_en'] : m['league_ar'];
-                                      final teamA = isEn ? m['teamA_en'] : m['teamA_ar'];
-                                      final teamB = isEn ? m['teamB_en'] : m['teamB_ar'];
-                                      final mTime = isEn ? m['time_en'] : m['time_ar'];
+                                  height: 84,
+                                  child: FocusTraversalGroup(
+                                    policy: ReadingOrderTraversalPolicy(),
+                                    child: ListView.builder(
+                                      scrollDirection: Axis.horizontal,
+                                      itemCount: _matches.length,
+                                      itemBuilder: (context, index) {
+                                        final m = _matches[index];
+                                        final league = isEn ? m['league_en'] : m['league_ar'];
+                                        final teamA = isEn ? m['teamA_en'] : m['teamA_ar'];
+                                        final teamB = isEn ? m['teamB_en'] : m['teamB_ar'];
+                                        final mTime = isEn ? m['time_en'] : m['time_ar'];
 
-                                      return Focus(
-                                        child: Builder(builder: (ctx) {
-                                          final isFocused = Focus.of(ctx).hasFocus;
-                                          return AnimatedContainer(
-                                            duration: const Duration(milliseconds: 160),
-                                            width: 235,
-                                            margin: const EdgeInsets.only(right: 16),
-                                            transform: isFocused ? (Matrix4.identity()..scale(1.06)) : Matrix4.identity(),
-                                            padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 8),
-                                            decoration: BoxDecoration(
-                                              color: isFocused ? const Color(0xFF1E293B).withOpacity(0.95) : Colors.black.withOpacity(0.55),
+                                        return Focus(
+                                          child: Builder(builder: (ctx) {
+                                            final isFocused = Focus.of(ctx).hasFocus;
+                                            return InkWell(
+                                              onTap: () {},
                                               borderRadius: BorderRadius.circular(16),
-                                              border: Border.all(
-                                                color: isFocused ? const Color(0xFF38BDF8) : Colors.white12,
-                                                width: isFocused ? 2.5 : 1,
-                                              ),
-                                              boxShadow: isFocused
-                                                  ? [BoxShadow(color: const Color(0xFF38BDF8).withOpacity(0.4), blurRadius: 16, spreadRadius: 1)]
-                                                  : [],
-                                            ),
-                                            child: Column(
-                                              mainAxisAlignment: MainAxisAlignment.center,
-                                              children: [
-                                                Text(
-                                                  league,
-                                                  style: const TextStyle(fontSize: 11, color: Color(0xFF38BDF8), fontWeight: FontWeight.bold),
+                                              child: AnimatedContainer(
+                                                duration: const Duration(milliseconds: 140),
+                                                width: 240,
+                                                margin: const EdgeInsets.only(right: 16),
+                                                transform: isFocused ? (Matrix4.identity()..scale(1.05)) : Matrix4.identity(),
+                                                padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 8),
+                                                decoration: BoxDecoration(
+                                                  color: isFocused ? const Color(0xFF1E293B).withOpacity(0.95) : Colors.black.withOpacity(0.55),
+                                                  borderRadius: BorderRadius.circular(16),
+                                                  border: Border.all(
+                                                    color: isFocused ? const Color(0xFF38BDF8) : Colors.white12,
+                                                    width: isFocused ? 2.5 : 1,
+                                                  ),
+                                                  boxShadow: isFocused
+                                                      ? [BoxShadow(color: const Color(0xFF38BDF8).withOpacity(0.4), blurRadius: 16, spreadRadius: 1)]
+                                                      : [],
                                                 ),
-                                                const SizedBox(height: 5),
-                                                Row(
-                                                  mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                                                child: Column(
+                                                  mainAxisAlignment: MainAxisAlignment.center,
                                                   children: [
-                                                    Expanded(
-                                                      child: Text(
-                                                        teamA,
-                                                        textAlign: TextAlign.center,
-                                                        style: const TextStyle(fontSize: 12, fontWeight: FontWeight.bold),
-                                                        overflow: TextOverflow.ellipsis,
-                                                      ),
+                                                    Text(
+                                                      league,
+                                                      style: const TextStyle(fontSize: 11, color: Color(0xFF38BDF8), fontWeight: FontWeight.bold),
                                                     ),
-                                                    Container(
-                                                      padding: const EdgeInsets.symmetric(horizontal: 7, vertical: 2),
-                                                      decoration: BoxDecoration(color: Colors.white12, borderRadius: BorderRadius.circular(6)),
-                                                      child: Text(
-                                                        mTime,
-                                                        style: const TextStyle(fontSize: 10, color: Colors.amberAccent, fontWeight: FontWeight.bold),
-                                                      ),
-                                                    ),
-                                                    Expanded(
-                                                      child: Text(
-                                                        teamB,
-                                                        textAlign: TextAlign.center,
-                                                        style: const TextStyle(fontSize: 12, fontWeight: FontWeight.bold),
-                                                        overflow: TextOverflow.ellipsis,
-                                                      ),
+                                                    const SizedBox(height: 5),
+                                                    Row(
+                                                      mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                                                      children: [
+                                                        Expanded(
+                                                          child: Text(
+                                                            teamA,
+                                                            textAlign: TextAlign.center,
+                                                            style: const TextStyle(fontSize: 12, fontWeight: FontWeight.bold),
+                                                            overflow: TextOverflow.ellipsis,
+                                                          ),
+                                                        ),
+                                                        Container(
+                                                          padding: const EdgeInsets.symmetric(horizontal: 7, vertical: 2),
+                                                          decoration: BoxDecoration(color: Colors.white12, borderRadius: BorderRadius.circular(6)),
+                                                          child: Text(
+                                                            mTime,
+                                                            style: const TextStyle(fontSize: 10, color: Colors.amberAccent, fontWeight: FontWeight.bold),
+                                                          ),
+                                                        ),
+                                                        Expanded(
+                                                          child: Text(
+                                                            teamB,
+                                                            textAlign: TextAlign.center,
+                                                            style: const TextStyle(fontSize: 12, fontWeight: FontWeight.bold),
+                                                            overflow: TextOverflow.ellipsis,
+                                                          ),
+                                                        ),
+                                                      ],
                                                     ),
                                                   ],
                                                 ),
-                                              ],
-                                            ),
-                                          );
-                                        }),
-                                      );
-                                    },
+                                              ),
+                                            );
+                                          }),
+                                        );
+                                      },
+                                    ),
                                   ),
                                 ),
                                 const SizedBox(height: 18),
                               ],
 
+                              // شريط التطبيقات
                               Row(
                                 children: [
                                   Text(
@@ -974,101 +987,142 @@ jobs:
                                   const SizedBox(width: 12),
                                   Text(
                                     isEn ? "(Long-press to reorder or remove)" : "(اضغط مطولاً بالريموت لإعادة الترتيب أو الحذف)",
-                                    style: TextStyle(fontSize: 12, color: Colors.white.withOpacity(0.5)),
+                                    style: TextStyle(fontSize: 12, color: Colors.white.withOpacity(0.45)),
                                   ),
                                 ],
                               ),
                               const SizedBox(height: 12),
-                              SizedBox(
-                                height: 125,
-                                child: _loadingApps
-                                    ? const Center(child: CircularProgressIndicator())
-                                    : ListView.builder(
-                                        scrollDirection: Axis.horizontal,
-                                        itemCount: _favoriteApps.length + 1,
-                                        itemBuilder: (context, index) {
-                                          if (index == _favoriteApps.length) {
-                                            return Focus(
-                                              child: Builder(builder: (ctx) {
-                                                final isFocused = Focus.of(ctx).hasFocus;
-                                                return GestureDetector(
-                                                  onTap: _openAllAppsModal,
-                                                  child: AnimatedContainer(
-                                                    duration: const Duration(milliseconds: 160),
-                                                    width: 110,
-                                                    margin: const EdgeInsets.only(right: 16),
-                                                    transform: isFocused ? (Matrix4.identity()..scale(1.08)) : Matrix4.identity(),
-                                                    decoration: BoxDecoration(
-                                                      color: isFocused ? const Color(0xFF1E293B).withOpacity(0.95) : Colors.black.withOpacity(0.4),
-                                                      borderRadius: BorderRadius.circular(18),
-                                                      border: Border.all(
-                                                        color: isFocused ? const Color(0xFF38BDF8) : Colors.white24,
-                                                        width: isFocused ? 2.5 : 1,
-                                                      ),
-                                                    ),
-                                                    child: Column(
-                                                      mainAxisAlignment: MainAxisAlignment.center,
-                                                      children: [
-                                                        const Icon(Icons.add_rounded, size: 40, color: Color(0xFF38BDF8)),
-                                                        const SizedBox(height: 6),
-                                                        Text(isEn ? "Customize" : "تخصيص", style: const TextStyle(fontSize: 12, color: Colors.white70)),
-                                                      ],
-                                                    ),
-                                                  ),
-                                                );
-                                              }),
-                                            );
-                                          }
 
-                                          final app = _favoriteApps[index];
-                                          return Focus(
-                                            child: Builder(builder: (ctx) {
-                                              final isFocused = Focus.of(ctx).hasFocus;
-                                              return GestureDetector(
-                                                onTap: () => InstalledApps.startApp(app.packageName),
-                                                onLongPress: () => _showAppOptionsDialog(index),
-                                                child: AnimatedContainer(
-                                                  duration: const Duration(milliseconds: 160),
-                                                  width: 115,
-                                                  margin: const EdgeInsets.only(right: 16),
-                                                  transform: isFocused ? (Matrix4.identity()..scale(1.08)) : Matrix4.identity(),
-                                                  decoration: BoxDecoration(
-                                                    color: isFocused ? const Color(0xFF1E293B).withOpacity(0.95) : Colors.black.withOpacity(0.55),
-                                                    borderRadius: BorderRadius.circular(18),
-                                                    border: Border.all(
-                                                      color: isFocused ? const Color(0xFF38BDF8) : Colors.white12,
-                                                      width: isFocused ? 2.5 : 1,
-                                                    ),
-                                                    boxShadow: isFocused
-                                                        ? [BoxShadow(color: const Color(0xFF38BDF8).withOpacity(0.45), blurRadius: 18, spreadRadius: 2)]
-                                                        : [],
-                                                ),
-                                                ),
-                                                child: Column(
-                                                  mainAxisAlignment: MainAxisAlignment.center,
-                                                  children: [
-                                                    if (app.icon != null)
-                                                      Image.memory(app.icon!, width: 44, height: 44)
-                                                    else
-                                                      const Icon(Icons.tv_rounded, size: 44, color: Colors.white70),
-                                                    const SizedBox(height: 8),
-                                                    Padding(
-                                                      padding: const EdgeInsets.symmetric(horizontal: 6),
-                                                      child: Text(
-                                                        app.name,
-                                                        maxLines: 1,
-                                                        overflow: TextOverflow.ellipsis,
-                                                        textAlign: TextAlign.center,
-                                                        style: const TextStyle(fontSize: 11, fontWeight: FontWeight.w600, color: Colors.white),
+                              Container(
+                                padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+                                decoration: BoxDecoration(
+                                  color: Colors.black.withOpacity(0.35),
+                                  borderRadius: BorderRadius.circular(28),
+                                  border: Border.all(color: Colors.white10),
+                                ),
+                                child: SizedBox(
+                                  height: 88,
+                                  child: _loadingApps
+                                      ? const Center(child: CircularProgressIndicator())
+                                      : FocusTraversalGroup(
+                                          policy: ReadingOrderTraversalPolicy(),
+                                          child: ListView.builder(
+                                            scrollDirection: Axis.horizontal,
+                                            itemCount: _favoriteApps.length + 1,
+                                            itemBuilder: (context, index) {
+                                              if (index == _favoriteApps.length) {
+                                                return Focus(
+                                                  child: Builder(builder: (ctx) {
+                                                    final isFocused = Focus.of(ctx).hasFocus;
+                                                    return InkWell(
+                                                      onTap: _openAllAppsModal,
+                                                      borderRadius: BorderRadius.circular(22),
+                                                      child: AnimatedContainer(
+                                                        duration: const Duration(milliseconds: 140),
+                                                        width: 110,
+                                                        margin: const EdgeInsets.only(right: 14),
+                                                        transform: isFocused ? (Matrix4.identity()..scale(1.08)) : Matrix4.identity(),
+                                                        decoration: BoxDecoration(
+                                                          color: isFocused ? const Color(0xFF1E293B) : Colors.white.withOpacity(0.08),
+                                                          borderRadius: BorderRadius.circular(22),
+                                                          border: Border.all(
+                                                            color: isFocused ? const Color(0xFF38BDF8) : Colors.white24,
+                                                            width: isFocused ? 2.5 : 1,
+                                                          ),
+                                                          boxShadow: isFocused
+                                                              ? [BoxShadow(color: const Color(0xFF38BDF8).withOpacity(0.4), blurRadius: 16)]
+                                                              : [],
+                                                        ),
+                                                        child: Column(
+                                                          mainAxisAlignment: MainAxisAlignment.center,
+                                                          children: [
+                                                            Icon(Icons.add_rounded, size: 34, color: isFocused ? const Color(0xFF38BDF8) : Colors.white70),
+                                                            const SizedBox(height: 2),
+                                                            Text(isEn ? "Add" : "تخصيص", style: const TextStyle(fontSize: 11, color: Colors.white70)),
+                                                          ],
+                                                        ),
+                                                      ),
+                                                    );
+                                                  }),
+                                                );
+                                              }
+
+                                              final app = _favoriteApps[index];
+                                              return Focus(
+                                                child: Builder(builder: (ctx) {
+                                                  final isFocused = Focus.of(ctx).hasFocus;
+                                                  return InkWell(
+                                                    onTap: () => InstalledApps.startApp(app.packageName),
+                                                    onLongPress: () => _showAppOptionsDialog(index),
+                                                    borderRadius: BorderRadius.circular(22),
+                                                    child: AnimatedContainer(
+                                                      duration: const Duration(milliseconds: 140),
+                                                      width: 155,
+                                                      margin: const EdgeInsets.only(right: 14),
+                                                      transform: isFocused ? (Matrix4.identity()..scale(1.1)) : Matrix4.identity(),
+                                                      padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 8),
+                                                      decoration: BoxDecoration(
+                                                        color: isFocused 
+                                                            ? const Color(0xFF0F172A).withOpacity(0.98) 
+                                                            : Colors.white.withOpacity(0.12),
+                                                        borderRadius: BorderRadius.circular(22),
+                                                        border: Border.all(
+                                                          color: isFocused ? const Color(0xFF38BDF8) : Colors.white12,
+                                                          width: isFocused ? 2.5 : 1,
+                                                        ),
+                                                        boxShadow: isFocused
+                                                            ? [
+                                                                BoxShadow(
+                                                                  color: const Color(0xFF38BDF8).withOpacity(0.55),
+                                                                  blurRadius: 20,
+                                                                  spreadRadius: 2,
+                                                                ),
+                                                              ]
+                                                            : [
+                                                                BoxShadow(
+                                                                  color: Colors.black.withOpacity(0.2),
+                                                                  blurRadius: 8,
+                                                                  offset: const Offset(0, 4),
+                                                                ),
+                                                              ],
+                                                      ),
+                                                      child: Row(
+                                                        children: [
+                                                          Container(
+                                                            width: 48,
+                                                            height: 48,
+                                                            decoration: BoxDecoration(
+                                                              color: Colors.black26,
+                                                              borderRadius: BorderRadius.circular(14),
+                                                            ),
+                                                            clipBehavior: Clip.antiAlias,
+                                                            child: app.icon != null
+                                                                ? Image.memory(app.icon!, fit: BoxFit.contain)
+                                                                : const Icon(Icons.tv_rounded, size: 28, color: Colors.white70),
+                                                          ),
+                                                          const SizedBox(width: 10),
+                                                          Expanded(
+                                                            child: Text(
+                                                              app.name,
+                                                              maxLines: 1,
+                                                              overflow: TextOverflow.ellipsis,
+                                                              style: TextStyle(
+                                                                fontSize: 12,
+                                                                fontWeight: FontWeight.bold,
+                                                                color: isFocused ? const Color(0xFF38BDF8) : Colors.white,
+                                                              ),
+                                                            ),
+                                                          ),
+                                                        ],
                                                       ),
                                                     ),
-                                                  ],
-                                                ),
+                                                  );
+                                                }),
                                               );
-                                            }),
-                                          );
-                                        },
-                                      ),
+                                            },
+                                          ),
+                                  ),
+                                ),
                               ),
                               const SizedBox(height: 6),
                             ],
@@ -1091,5 +1145,5 @@ jobs:
       - name: Upload APK
         uses: actions/upload-artifact@v4
         with:
-          name: Luban-TV-v2.2.2
+          name: Luban-TV-v2.3.1
           path: build/app/outputs/flutter-apk/Luban-TV.apk
