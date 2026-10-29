@@ -39,7 +39,7 @@ jobs:
           name: luban_tv
           description: "Luban Ambient Smart TV Launcher"
           publish_to: "none"
-          version: 1.9.2+17
+          version: 2.0.0+18
 
           environment:
             sdk: ">=3.0.0 <4.0.0"
@@ -51,6 +51,7 @@ jobs:
             http: ^1.2.0
             installed_apps: ^2.1.1
             shared_preferences: ^2.2.3
+            android_intent_plus: ^5.0.2
 
           flutter:
             uses-material-design: true
@@ -61,7 +62,6 @@ jobs:
         run: |
           sudo apt-get update && sudo apt-get install -y imagemagick
 
-          # تحديد اسم الصورة المرفوعة سواء كانت jpg أو png
           if [ -f "icon.jpg" ]; then
             SRC="icon.jpg"
           elif [ -f "icon.png" ]; then
@@ -76,16 +76,12 @@ jobs:
           mkdir -p android/app/src/main/res/drawable-xhdpi
 
           if [ -n "$SRC" ]; then
-            # قص المربع الأوسط لتوليد أيقونة التطبيق الرسمية
             convert "$SRC" -gravity center -crop 1:1 +repage square_icon.png
-
             convert square_icon.png -resize 48x48 android/app/src/main/res/mipmap-mdpi/ic_launcher.png
             convert square_icon.png -resize 72x72 android/app/src/main/res/mipmap-hdpi/ic_launcher.png
             convert square_icon.png -resize 96x96 android/app/src/main/res/mipmap-xhdpi/ic_launcher.png
             convert square_icon.png -resize 144x144 android/app/src/main/res/mipmap-xxhdpi/ic_launcher.png
             convert square_icon.png -resize 192x192 android/app/src/main/res/mipmap-xxxhdpi/ic_launcher.png
-
-            # توليد بانر التلفزيون العريض
             convert "$SRC" -resize 320x180^ -gravity center -extent 320x180 android/app/src/main/res/drawable-xhdpi/ic_launcher_banner.png
           fi
 
@@ -143,6 +139,7 @@ jobs:
           import 'package:intl/intl.dart';
           import 'package:intl/date_symbol_data_local.dart';
           import 'package:shared_preferences/shared_preferences.dart';
+          import 'package:android_intent_plus/android_intent.dart';
 
           void main() async {
             WidgetsFlutterBinding.ensureInitialized();
@@ -186,6 +183,9 @@ jobs:
             List<AppInfo> _favoriteApps = [];
             bool _loadingApps = true;
             String _hijriDateStr = "-- هـ";
+            String _selectedCity = "Salalah";
+            String _selectedCityAr = "صلالة";
+            bool _showMatchesBar = true;
 
             Map<String, String> _prayerTimes = {
               'الفجر': '--:--',
@@ -219,8 +219,8 @@ jobs:
             @override
             void initState() {
               super.initState();
+              _loadPreferences();
               _loadAppsAndFavorites();
-              _fetchPrayerAndDateData();
               _clockTimer = Timer.periodic(const Duration(seconds: 1), (_) {
                 if (mounted) setState(() => _currentTime = DateTime.now());
               });
@@ -230,6 +230,16 @@ jobs:
             void dispose() {
               _clockTimer?.cancel();
               super.dispose();
+            }
+
+            Future<void> _loadPreferences() async {
+              final prefs = await SharedPreferences.getInstance();
+              setState(() {
+                _selectedCity = prefs.getString('pref_city') ?? "Salalah";
+                _selectedCityAr = prefs.getString('pref_city_ar') ?? "صلالة";
+                _showMatchesBar = prefs.getBool('pref_show_matches') ?? true;
+              });
+              _fetchPrayerAndDateData();
             }
 
             Future<void> _loadAppsAndFavorites() async {
@@ -289,6 +299,116 @@ jobs:
                 _favoriteApps.add(app);
               });
               _saveFavorites(_favoriteApps);
+            }
+
+            void _openSystemSettings() async {
+              try {
+                const intent = AndroidIntent(action: 'android.settings.SETTINGS');
+                await intent.launch();
+              } catch (_) {
+                try {
+                  await InstalledApps.startApp('com.android.tv.settings');
+                } catch (_) {}
+              }
+            }
+
+            void _showLauncherSettingsDialog() {
+              showDialog(
+                context: context,
+                builder: (ctx) => StatefulBuilder(
+                  builder: (context, setDlgState) => AlertDialog(
+                    backgroundColor: const Color(0xFF1E293B),
+                    title: const Text("إعدادات لانشر لبان", style: TextStyle(color: Colors.white, fontSize: 18)),
+                    content: Column(
+                      mainAxisSize: MainAxisSize.min,
+                      children: [
+                        ListTile(
+                          leading: const Icon(Icons.location_city, color: Color(0xFF38BDF8)),
+                          title: const Text("مدينة أوقات الصلاة"),
+                          subtitle: Text(_selectedCityAr, style: const TextStyle(color: Color(0xFF38BDF8))),
+                          trailing: DropdownButton<String>(
+                            value: _selectedCity,
+                            dropdownColor: const Color(0xFF0F172A),
+                            items: const [
+                              DropdownMenuItem(value: "Salalah", child: Text("صلالة")),
+                              DropdownMenuItem(value: "Muscat", child: Text("مسقط")),
+                              DropdownMenuItem(value: "Nizwa", child: Text("نزوى")),
+                              DropdownMenuItem(value: "Sohar", child: Text("صحار")),
+                              DropdownMenuItem(value: "Sur", child: Text("صور")),
+                            ],
+                            onChanged: (val) async {
+                              if (val != null) {
+                                final mapAr = {
+                                  "Salalah": "صلالة",
+                                  "Muscat": "مسقط",
+                                  "Nizwa": "نزوى",
+                                  "Sohar": "صحار",
+                                  "Sur": "صور",
+                                };
+                                final prefs = await SharedPreferences.getInstance();
+                                await prefs.setString('pref_city', val);
+                                await prefs.setString('pref_city_ar', mapAr[val]!);
+                                setDlgState(() {
+                                  _selectedCity = val;
+                                  _selectedCityAr = mapAr[val]!;
+                                });
+                                setState(() {
+                                  _selectedCity = val;
+                                  _selectedCityAr = mapAr[val]!;
+                                });
+                                _fetchPrayerAndDateData();
+                              }
+                            },
+                          ),
+                        ),
+                        SwitchListTile(
+                          activeColor: const Color(0xFF38BDF8),
+                          secondary: const Icon(Icons.sports_soccer, color: Color(0xFF38BDF8)),
+                          title: const Text("عرض شريط مباريات اليوم"),
+                          value: _showMatchesBar,
+                          onChanged: (val) async {
+                            final prefs = await SharedPreferences.getInstance();
+                            await prefs.setBool('pref_show_matches', val);
+                            setDlgState(() => _showMatchesBar = val);
+                            setState(() => _showMatchesBar = val);
+                          },
+                        ),
+                      ],
+                    ),
+                    actions: [
+                      TextButton(
+                        onPressed: () => Navigator.pop(ctx),
+                        child: const Text("إغلاق", style: TextStyle(color: Color(0xFF38BDF8))),
+                      ),
+                    ],
+                  ),
+                ),
+              );
+            }
+
+            void _showExitDialog() {
+              showDialog(
+                context: context,
+                builder: (ctx) => AlertDialog(
+                  backgroundColor: const Color(0xFF1E293B),
+                  title: const Text("الخروج من اللانشر", style: TextStyle(color: Colors.white, fontSize: 18)),
+                  content: const Text("هل تريد إغلاق اللانشر والعودة للشاشة السابقة؟"),
+                  actions: [
+                    TextButton(
+                      onPressed: () => Navigator.pop(ctx),
+                      child: const Text("إلغاء", style: TextStyle(color: Colors.white70)),
+                    ),
+                    ElevatedButton(
+                      style: ElevatedButton.styleFrom(backgroundColor: Colors.redAccent),
+                      onPressed: () {
+                        Navigator.pop(ctx);
+                        SystemNavigator.pop();
+                      },
+                      child: const Text("خروج"),
+                    ),
+                  ],
+                ),
+              );
             }
 
             void _showAppOptionsDialog(int index) {
@@ -425,7 +545,7 @@ jobs:
             Future<void> _fetchPrayerAndDateData() async {
               try {
                 final res = await http.get(Uri.parse(
-                    'https://api.aladhan.com/v1/timingsByCity?city=Salalah&country=Oman&method=4'));
+                    'https://api.aladhan.com/v1/timingsByCity?city=$_selectedCity&country=Oman&method=4'));
                 if (res.statusCode == 200) {
                   final jsonBody = json.decode(res.body)['data'];
                   final timings = jsonBody['timings'];
@@ -464,6 +584,34 @@ jobs:
               }
             }
 
+            Widget _buildTopButton({required IconData icon, required String tooltip, required VoidCallback onTap, Color color = Colors.white70}) {
+              return Focus(
+                child: Builder(builder: (ctx) {
+                  final hasFoc = Focus.of(ctx).hasFocus;
+                  return InkWell(
+                    onTap: onTap,
+                    borderRadius: BorderRadius.circular(14),
+                    child: AnimatedContainer(
+                      duration: const Duration(milliseconds: 140),
+                      padding: const EdgeInsets.all(10),
+                      decoration: BoxDecoration(
+                        color: hasFoc ? const Color(0xFF1E293B) : Colors.black.withOpacity(0.4),
+                        borderRadius: BorderRadius.circular(14),
+                        border: Border.all(
+                          color: hasFoc ? const Color(0xFF38BDF8) : Colors.white24,
+                          width: hasFoc ? 2 : 1,
+                        ),
+                        boxShadow: hasFoc
+                            ? [BoxShadow(color: const Color(0xFF38BDF8).withOpacity(0.4), blurRadius: 10)]
+                            : [],
+                      ),
+                      child: Icon(icon, size: 20, color: hasFoc ? const Color(0xFF38BDF8) : color),
+                    ),
+                  );
+                }),
+              );
+            }
+
             @override
             Widget build(BuildContext context) {
               final timeStr = DateFormat('hh:mm').format(_currentTime);
@@ -498,6 +646,7 @@ jobs:
                         child: Column(
                           crossAxisAlignment: CrossAxisAlignment.start,
                           children: [
+                            // الشريط العلوي (الساعة، التواريخ، الإعدادات، وأوقات الصلاة)
                             Row(
                               crossAxisAlignment: CrossAxisAlignment.center,
                               children: [
@@ -540,9 +689,33 @@ jobs:
                                     Text(dateEnStr, style: const TextStyle(fontSize: 11, color: Colors.white38)),
                                   ],
                                 ),
+                                const SizedBox(width: 20),
+                                // أزرار الإعدادات والخروج
+                                Row(
+                                  children: [
+                                    _buildTopButton(
+                                      icon: Icons.settings,
+                                      tooltip: "إعدادات التلفزيون",
+                                      onTap: _openSystemSettings,
+                                    ),
+                                    const SizedBox(width: 8),
+                                    _buildTopButton(
+                                      icon: Icons.tune,
+                                      tooltip: "إعدادات لانشر لبان",
+                                      onTap: _showLauncherSettingsDialog,
+                                    ),
+                                    const SizedBox(width: 8),
+                                    _buildTopButton(
+                                      icon: Icons.power_settings_new,
+                                      tooltip: "خروج من اللانشر",
+                                      onTap: _showExitDialog,
+                                      color: Colors.redAccent.withOpacity(0.85),
+                                    ),
+                                  ],
+                                ),
                                 const Spacer(),
                                 Container(
-                                  padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+                                  padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 8),
                                   decoration: BoxDecoration(
                                     color: Colors.black.withOpacity(0.58),
                                     borderRadius: BorderRadius.circular(18),
@@ -550,26 +723,36 @@ jobs:
                                   ),
                                   child: Row(
                                     mainAxisSize: MainAxisSize.min,
-                                    children: _prayerTimes.entries.map((entry) {
-                                      return Padding(
-                                        padding: const EdgeInsets.symmetric(horizontal: 8),
-                                        child: Column(
-                                          mainAxisSize: MainAxisSize.min,
-                                          children: [
-                                            Text(entry.key, style: const TextStyle(fontSize: 11, color: Colors.white70)),
-                                            const SizedBox(height: 3),
-                                            Text(
-                                              entry.value,
-                                              style: const TextStyle(
-                                                fontSize: 14,
-                                                fontWeight: FontWeight.bold,
-                                                color: Color(0xFF38BDF8),
-                                              ),
-                                            ),
-                                          ],
+                                    children: [
+                                      Padding(
+                                        padding: const EdgeInsets.symmetric(horizontal: 6),
+                                        child: Text(
+                                          _selectedCityAr,
+                                          style: const TextStyle(fontSize: 12, fontWeight: FontWeight.bold, color: Color(0xFF38BDF8)),
                                         ),
-                                      );
-                                    }).toList(),
+                                      ),
+                                      const VerticalDivider(color: Colors.white24, thickness: 1),
+                                      ..._prayerTimes.entries.map((entry) {
+                                        return Padding(
+                                          padding: const EdgeInsets.symmetric(horizontal: 6),
+                                          child: Column(
+                                            mainAxisSize: MainAxisSize.min,
+                                            children: [
+                                              Text(entry.key, style: const TextStyle(fontSize: 11, color: Colors.white70)),
+                                              const SizedBox(height: 3),
+                                              Text(
+                                                entry.value,
+                                                style: const TextStyle(
+                                                  fontSize: 13,
+                                                  fontWeight: FontWeight.bold,
+                                                  color: Color(0xFF38BDF8),
+                                                ),
+                                              ),
+                                            ],
+                                          ),
+                                        );
+                                      }).toList(),
+                                    ],
                                   ),
                                 ),
                               ],
@@ -577,92 +760,95 @@ jobs:
 
                             const Spacer(),
 
-                            Row(
-                              children: const [
-                                Icon(Icons.sports_soccer, size: 20, color: Color(0xFF38BDF8)),
-                                SizedBox(width: 8),
-                                Text(
-                                  "مباريات اليوم",
-                                  style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold, color: Colors.white),
-                                ),
-                              ],
-                            ),
-                            const SizedBox(height: 10),
-                            SizedBox(
-                              height: 82,
-                              child: ListView.builder(
-                                scrollDirection: Axis.horizontal,
-                                itemCount: _matches.length,
-                                itemBuilder: (context, index) {
-                                  final m = _matches[index];
-                                  return Focus(
-                                    child: Builder(builder: (ctx) {
-                                      final isFocused = Focus.of(ctx).hasFocus;
-                                      return AnimatedContainer(
-                                        duration: const Duration(milliseconds: 160),
-                                        width: 235,
-                                        margin: const EdgeInsets.only(right: 16),
-                                        transform: isFocused ? (Matrix4.identity()..scale(1.06)) : Matrix4.identity(),
-                                        padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 8),
-                                        decoration: BoxDecoration(
-                                          color: isFocused ? const Color(0xFF1E293B).withOpacity(0.95) : Colors.black.withOpacity(0.55),
-                                          borderRadius: BorderRadius.circular(16),
-                                          border: Border.all(
-                                            color: isFocused ? const Color(0xFF38BDF8) : Colors.white12,
-                                            width: isFocused ? 2.5 : 1,
-                                          ),
-                                          boxShadow: isFocused
-                                              ? [BoxShadow(color: const Color(0xFF38BDF8).withOpacity(0.4), blurRadius: 16, spreadRadius: 1)]
-                                              : [],
-                                        ),
-                                        child: Column(
-                                          mainAxisAlignment: MainAxisAlignment.center,
-                                          children: [
-                                            Text(
-                                              m['league']!,
-                                              style: const TextStyle(fontSize: 11, color: Color(0xFF38BDF8), fontWeight: FontWeight.bold),
-                                            ),
-                                            const SizedBox(height: 5),
-                                            Row(
-                                              mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                                              children: [
-                                                Expanded(
-                                                  child: Text(
-                                                    m['teamA']!,
-                                                    textAlign: TextAlign.center,
-                                                    style: const TextStyle(fontSize: 12, fontWeight: FontWeight.bold),
-                                                    overflow: TextOverflow.ellipsis,
-                                                  ),
-                                                ),
-                                                Container(
-                                                  padding: const EdgeInsets.symmetric(horizontal: 7, vertical: 2),
-                                                  decoration: BoxDecoration(color: Colors.white12, borderRadius: BorderRadius.circular(6)),
-                                                  child: Text(
-                                                    m['time']!,
-                                                    style: const TextStyle(fontSize: 10, color: Colors.amberAccent, fontWeight: FontWeight.bold),
-                                                  ),
-                                                ),
-                                                Expanded(
-                                                  child: Text(
-                                                    m['teamB']!,
-                                                    textAlign: TextAlign.center,
-                                                    style: const TextStyle(fontSize: 12, fontWeight: FontWeight.bold),
-                                                    overflow: TextOverflow.ellipsis,
-                                                  ),
-                                                ),
-                                              ],
-                                            ),
-                                          ],
-                                        ),
-                                      );
-                                    }),
-                                  );
-                                },
+                            // مباريات اليوم (يمكن إخفاؤها أو إظهارها من الإعدادات)
+                            if (_showMatchesBar) ...[
+                              Row(
+                                children: const [
+                                  Icon(Icons.sports_soccer, size: 20, color: Color(0xFF38BDF8)),
+                                  SizedBox(width: 8),
+                                  Text(
+                                    "مباريات اليوم",
+                                    style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold, color: Colors.white),
+                                  ),
+                                ],
                               ),
-                            ),
+                              const SizedBox(height: 10),
+                              SizedBox(
+                                height: 82,
+                                child: ListView.builder(
+                                  scrollDirection: Axis.horizontal,
+                                  itemCount: _matches.length,
+                                  itemBuilder: (context, index) {
+                                    final m = _matches[index];
+                                    return Focus(
+                                      child: Builder(builder: (ctx) {
+                                        final isFocused = Focus.of(ctx).hasFocus;
+                                        return AnimatedContainer(
+                                          duration: const Duration(milliseconds: 160),
+                                          width: 235,
+                                          margin: const EdgeInsets.only(right: 16),
+                                          transform: isFocused ? (Matrix4.identity()..scale(1.06)) : Matrix4.identity(),
+                                          padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 8),
+                                          decoration: BoxDecoration(
+                                            color: isFocused ? const Color(0xFF1E293B).withOpacity(0.95) : Colors.black.withOpacity(0.55),
+                                            borderRadius: BorderRadius.circular(16),
+                                            border: Border.all(
+                                              color: isFocused ? const Color(0xFF38BDF8) : Colors.white12,
+                                              width: isFocused ? 2.5 : 1,
+                                            ),
+                                            boxShadow: isFocused
+                                                ? [BoxShadow(color: const Color(0xFF38BDF8).withOpacity(0.4), blurRadius: 16, spreadRadius: 1)]
+                                                : [],
+                                          ),
+                                          child: Column(
+                                            mainAxisAlignment: MainAxisAlignment.center,
+                                            children: [
+                                              Text(
+                                                m['league']!,
+                                                style: const TextStyle(fontSize: 11, color: Color(0xFF38BDF8), fontWeight: FontWeight.bold),
+                                              ),
+                                              const SizedBox(height: 5),
+                                              Row(
+                                                mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                                                children: [
+                                                  Expanded(
+                                                    child: Text(
+                                                      m['teamA']!,
+                                                      textAlign: TextAlign.center,
+                                                      style: const TextStyle(fontSize: 12, fontWeight: FontWeight.bold),
+                                                      overflow: TextOverflow.ellipsis,
+                                                    ),
+                                                  ),
+                                                  Container(
+                                                    padding: const EdgeInsets.symmetric(horizontal: 7, vertical: 2),
+                                                    decoration: BoxDecoration(color: Colors.white12, borderRadius: BorderRadius.circular(6)),
+                                                    child: Text(
+                                                      m['time']!,
+                                                      style: const TextStyle(fontSize: 10, color: Colors.amberAccent, fontWeight: FontWeight.bold),
+                                                    ),
+                                                  ),
+                                                  Expanded(
+                                                    child: Text(
+                                                      m['teamB']!,
+                                                      textAlign: TextAlign.center,
+                                                      style: const TextStyle(fontSize: 12, fontWeight: FontWeight.bold),
+                                                      overflow: TextOverflow.ellipsis,
+                                                    ),
+                                                  ),
+                                                ],
+                                              ),
+                                            ],
+                                          ),
+                                        );
+                                      }),
+                                    );
+                                  },
+                                ),
+                              ),
+                              const SizedBox(height: 18),
+                            ],
 
-                            const SizedBox(height: 18),
-
+                            // شريط التطبيقات المفضلة
                             Row(
                               children: [
                                 const Text(
@@ -788,5 +974,5 @@ jobs:
       - name: Upload APK
         uses: actions/upload-artifact@v4
         with:
-          name: Luban-TV-v1.9.2
+          name: Luban-TV-v2.0.0
           path: build/app/outputs/flutter-apk/Luban-TV.apk
