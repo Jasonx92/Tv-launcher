@@ -21,7 +21,7 @@ jobs:
       - name: Set up Flutter
         uses: subosito/flutter-action@v2
         with:
-          flutter-version: '3.22.0'
+          flutter-version: '3.19.6'
           channel: 'stable'
 
       - name: Setup Android TV Project
@@ -39,7 +39,7 @@ jobs:
           name: luban_tv
           description: "Luban Ambient Smart TV Launcher"
           publish_to: "none"
-          version: 2.1.2+21
+          version: 2.1.3+22
 
           environment:
             sdk: ">=3.0.0 <4.0.0"
@@ -51,8 +51,6 @@ jobs:
             http: ^1.2.0
             installed_apps: ^2.1.1
             shared_preferences: ^2.2.3
-            android_intent_plus: ^4.0.3
-            google_fonts: ^6.1.0
 
           flutter:
             uses-material-design: true
@@ -140,8 +138,6 @@ jobs:
           import 'package:intl/intl.dart';
           import 'package:intl/date_symbol_data_local.dart';
           import 'package:shared_preferences/shared_preferences.dart';
-          import 'package:android_intent_plus/android_intent.dart';
-          import 'package:google_fonts/google_fonts.dart';
 
           void main() async {
             WidgetsFlutterBinding.ensureInitialized();
@@ -166,7 +162,7 @@ jobs:
           }
 
           class _LubanTVAppState extends State<LubanTVApp> {
-            String _selectedFont = 'Cairo';
+            String _selectedFont = 'sans-serif';
 
             @override
             void initState() {
@@ -177,37 +173,18 @@ jobs:
             Future<void> loadFontSetting() async {
               final prefs = await SharedPreferences.getInstance();
               setState(() {
-                _selectedFont = prefs.getString('pref_font') ?? 'Cairo';
+                _selectedFont = prefs.getString('pref_font') ?? 'sans-serif';
               });
-            }
-
-            TextTheme _buildTheme(TextTheme base) {
-              switch (_selectedFont) {
-                case 'Tajawal':
-                  return GoogleFonts.tajawalTextTheme(base);
-                case 'Almarai':
-                  return GoogleFonts.almaraiTextTheme(base);
-                case 'Changa':
-                  return GoogleFonts.changaTextTheme(base);
-                case 'Readex Pro':
-                  return GoogleFonts.readexProTextTheme(base);
-                case 'Amiri':
-                  return GoogleFonts.amiriTextTheme(base);
-                case 'Cairo':
-                default:
-                  return GoogleFonts.cairoTextTheme(base);
-              }
             }
 
             @override
             Widget build(BuildContext context) {
-              final base = ThemeData.dark().textTheme;
               return MaterialApp(
                 debugShowCheckedModeBanner: false,
                 title: 'Luban TV',
                 theme: ThemeData(
                   brightness: Brightness.dark,
-                  textTheme: _buildTheme(base),
+                  fontFamily: _selectedFont,
                 ),
                 home: const LubanHomeScreen(),
               );
@@ -231,7 +208,7 @@ jobs:
             String _selectedCity = "Salalah";
             String _selectedCityAr = "صلالة";
             String _selectedLanguage = "hybrid";
-            String _selectedFont = "Cairo";
+            String _selectedFont = "sans-serif";
             bool _showMatchesBar = true;
 
             Map<String, String> _prayerTimes = {
@@ -297,7 +274,7 @@ jobs:
                 _selectedCity = prefs.getString('pref_city') ?? "Salalah";
                 _selectedCityAr = prefs.getString('pref_city_ar') ?? "صلالة";
                 _selectedLanguage = prefs.getString('pref_language') ?? "hybrid";
-                _selectedFont = prefs.getString('pref_font') ?? "Cairo";
+                _selectedFont = prefs.getString('pref_font') ?? "sans-serif";
                 _showMatchesBar = prefs.getBool('pref_show_matches') ?? true;
               });
               _fetchPrayerAndDateData();
@@ -364,11 +341,10 @@ jobs:
 
             void _openSystemSettings() async {
               try {
-                const intent = AndroidIntent(action: 'android.settings.SETTINGS');
-                await intent.launch();
+                await InstalledApps.startApp('com.android.tv.settings');
               } catch (_) {
                 try {
-                  await InstalledApps.startApp('com.android.tv.settings');
+                  await InstalledApps.startApp('com.android.settings');
                 } catch (_) {}
               }
             }
@@ -411,17 +387,15 @@ jobs:
                           ),
                           ListTile(
                             leading: const Icon(Icons.font_download, color: Color(0xFF38BDF8)),
-                            title: Text(_selectedLanguage == 'en' ? "Font Family" : "نوع الخط"),
+                            title: Text(_selectedLanguage == 'en' ? "Font Style" : "نمط الخط"),
                             trailing: DropdownButton<String>(
                               value: _selectedFont,
                               dropdownColor: const Color(0xFF0F172A),
                               items: const [
-                                DropdownMenuItem(value: "Cairo", child: Text("Cairo")),
-                                DropdownMenuItem(value: "Tajawal", child: Text("Tajawal")),
-                                DropdownMenuItem(value: "Almarai", child: Text("Almarai")),
-                                DropdownMenuItem(value: "Changa", child: Text("Changa")),
-                                DropdownMenuItem(value: "Readex Pro", child: Text("Readex Pro")),
-                                DropdownMenuItem(value: "Amiri", child: Text("Amiri")),
+                                DropdownMenuItem(value: "sans-serif", child: Text("Modern (افتراضي)")),
+                                DropdownMenuItem(value: "sans-serif-medium", child: Text("Bold (عريض)")),
+                                DropdownMenuItem(value: "sans-serif-light", child: Text("Light (ناعم)")),
+                                DropdownMenuItem(value: "serif", child: Text("Serif (كلاسيكي)")),
                               ],
                               onChanged: (val) async {
                                 if (val != null) {
@@ -1056,8 +1030,8 @@ jobs:
                                                       width: isFocused ? 2.5 : 1,
                                                     ),
                                                     boxShadow: isFocused
-                                                      ? [BoxShadow(color: const Color(0xFF38BDF8).withOpacity(0.45), blurRadius: 18, spreadRadius: 2)]
-                                                      : [],
+                                                        ? [BoxShadow(color: const Color(0xFF38BDF8).withOpacity(0.45), blurRadius: 18, spreadRadius: 2)]
+                                                        : [],
                                                 ),
                                                 child: Column(
                                                   mainAxisAlignment: MainAxisAlignment.center,
@@ -1079,19 +1053,19 @@ jobs:
                                                     ),
                                                   ],
                                                 ),
-                                              ),
-                                            );
-                                          }),
-                                        );
-                                      },
-                                    ),
-                            ),
-                            const SizedBox(height: 6),
-                          ],
+                                              );
+                                            }),
+                                          );
+                                        },
+                                      ),
+                              ),
+                              const SizedBox(height: 6),
+                            ],
+                          ),
                         ),
                       ),
-                    ),
-                  ],
+                    ],
+                  ),
                 ),
               );
             }
@@ -1106,5 +1080,5 @@ jobs:
       - name: Upload APK
         uses: actions/upload-artifact@v4
         with:
-          name: Luban-TV-v2.1.2
+          name: Luban-TV-v2.1.3
           path: build/app/outputs/flutter-apk/Luban-TV.apk
