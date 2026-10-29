@@ -39,7 +39,7 @@ jobs:
           name: luban_tv
           description: "Luban Ambient Smart TV Launcher"
           publish_to: "none"
-          version: 2.1.5+24
+          version: 2.1.6+25
 
           environment:
             sdk: ">=3.0.0 <4.0.0"
@@ -282,7 +282,7 @@ jobs:
 
             Future<void> _loadAppsAndFavorites() async {
               try {
-                final apps = await InstalledApps.getInstalledApps(false, true);
+                final apps = await InstalledApps.getInstalledApps();
                 final prefs = await SharedPreferences.getInstance();
                 final savedFavs = prefs.getStringList('fav_apps');
 
@@ -1084,11 +1084,11 @@ jobs:
 
       - name: Build APK Debug
         run: |
-          flutter build apk --debug
+          flutter build apk --debug --no-tree-shake-icons
           cp build/app/outputs/flutter-apk/app-debug.apk build/app/outputs/flutter-apk/Luban-TV.apk
 
       - name: Upload APK
         uses: actions/upload-artifact@v4
         with:
-          name: Luban-TV-v2.1.5
+          name: Luban-TV-v2.1.6
           path: build/app/outputs/flutter-apk/Luban-TV.apk
