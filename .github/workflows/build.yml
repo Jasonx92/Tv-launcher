@@ -39,7 +39,7 @@ jobs:
           name: luban_tv
           description: "Luban Ambient Smart TV Launcher"
           publish_to: "none"
-          version: 2.0.0+18
+          version: 2.1.0+19
 
           environment:
             sdk: ">=3.0.0 <4.0.0"
@@ -52,6 +52,7 @@ jobs:
             installed_apps: ^2.1.1
             shared_preferences: ^2.2.3
             android_intent_plus: ^5.0.2
+            google_fonts: ^6.2.1
 
           flutter:
             uses-material-design: true
@@ -140,6 +141,7 @@ jobs:
           import 'package:intl/date_symbol_data_local.dart';
           import 'package:shared_preferences/shared_preferences.dart';
           import 'package:android_intent_plus/android_intent.dart';
+          import 'package:google_fonts/google_fonts.dart';
 
           void main() async {
             WidgetsFlutterBinding.ensureInitialized();
@@ -152,17 +154,45 @@ jobs:
             runApp(const LubanTVApp());
           }
 
-          class LubanTVApp extends StatelessWidget {
+          class LubanTVApp extends StatefulWidget {
             const LubanTVApp({super.key});
+
+            static void restartApp(BuildContext context) {
+              context.findAncestorStateOfType<_LubanTVAppState>()?.reloadSettings();
+            }
+
+            @override
+            State<LubanTVApp> createState() => _LubanTVAppState();
+          }
+
+          class _LubanTVAppState extends State<LubanTVApp> {
+            String _fontFamily = 'Cairo';
+
+            @override
+            void initState() {
+              super.initState();
+              _loadFont();
+            }
+
+            void reloadSettings() {
+              _loadFont();
+            }
+
+            Future<void> _loadFont() async {
+              final prefs = await SharedPreferences.getInstance();
+              final font = prefs.getString('pref_font') ?? 'Cairo';
+              setState(() => _fontFamily = font);
+            }
 
             @override
             Widget build(BuildContext context) {
+              final baseTextTheme = ThemeData.dark().textTheme;
               return MaterialApp(
                 debugShowCheckedModeBanner: false,
                 title: 'Luban TV',
                 theme: ThemeData(
                   brightness: Brightness.dark,
-                  fontFamily: 'sans-serif',
+                  textTheme: GoogleFonts.getTextTheme(_fontFamily, baseTextTheme),
                 ),
                 home: const LubanHomeScreen(),
               );
@@ -185,6 +215,8 @@ jobs:
             String _hijriDateStr = "-- هـ";
             String _selectedCity = "Salalah";
             String _selectedCityAr = "صلالة";
+            String _selectedLanguage = "hybrid";
+            String _selectedFont = "Cairo";
             bool _showMatchesBar = true;
 
             Map<String, String> _prayerTimes = {
@@ -195,24 +227,36 @@ jobs:
               'العشاء': '--:--',
             };
 
-            final List<Map<String, String>> _matches = [
+            final List<Map<String, dynamic>> _matches = [
               {
-                'league': 'دوري أبطال أوروبا',
-                'teamA': 'ريال مدريد',
-                'teamB': 'مانشستر سيتي',
-                'time': '11:00 م',
+                'league_ar': 'دوري أبطال أوروبا',
+                'league_en': 'UEFA Champions League',
+                'teamA_ar': 'ريال مدريد',
+                'teamA_en': 'Real Madrid',
+                'teamB_ar': 'مانشستر سيتي',
+                'teamB_en': 'Man City',
+                'time_ar': '11:00 م',
+                'time_en': '11:00 PM',
               },
               {
-                'league': 'الدوري الإنجليزي',
-                'teamA': 'ليفربول',
-                'teamB': 'أرسنال',
-                'time': '8:30 م',
+                'league_ar': 'الدوري الإنجليزي',
+                'league_en': 'Premier League',
+                'teamA_ar': 'ليفربول',
+                'teamA_en': 'Liverpool',
+                'teamB_ar': 'أرسنال',
+                'teamB_en': 'Arsenal',
+                'time_ar': '8:30 م',
+                'time_en': '8:30 PM',
               },
               {
-                'league': 'دوري روشن',
-                'teamA': 'الهلال',
-                'teamB': 'النصر',
-                'time': '9:00 م',
+                'league_ar': 'دوري روشن',
+                'league_en': 'Roshn Saudi League',
+                'teamA_ar': 'الهلال',
+                'teamA_en': 'Al Hilal',
+                'teamB_ar': 'النصر',
+                'teamB_en': 'Al Nassr',
+                'time_ar': '9:00 م',
+                'time_en': '9:00 PM',
               },
             ];
 
@@ -237,6 +281,8 @@ jobs:
               setState(() {
                 _selectedCity = prefs.getString('pref_city') ?? "Salalah";
                 _selectedCityAr = prefs.getString('pref_city_ar') ?? "صلالة";
+                _selectedLanguage = prefs.getString('pref_language') ?? "hybrid";
+                _selectedFont = prefs.getString('pref_font') ?? "Cairo";
                 _showMatchesBar = prefs.getBool('pref_show_matches') ?? true;
               });
               _fetchPrayerAndDateData();
@@ -318,67 +364,118 @@ jobs:
                 builder: (ctx) => StatefulBuilder(
                   builder: (context, setDlgState) => AlertDialog(
                     backgroundColor: const Color(0xFF1E293B),
-                    title: const Text("إعدادات لانشر لبان", style: TextStyle(color: Colors.white, fontSize: 18)),
-                    content: Column(
-                      mainAxisSize: MainAxisSize.min,
-                      children: [
-                        ListTile(
-                          leading: const Icon(Icons.location_city, color: Color(0xFF38BDF8)),
-                          title: const Text("مدينة أوقات الصلاة"),
-                          subtitle: Text(_selectedCityAr, style: const TextStyle(color: Color(0xFF38BDF8))),
-                          trailing: DropdownButton<String>(
-                            value: _selectedCity,
-                            dropdownColor: const Color(0xFF0F172A),
-                            items: const [
-                              DropdownMenuItem(value: "Salalah", child: Text("صلالة")),
-                              DropdownMenuItem(value: "Muscat", child: Text("مسقط")),
-                              DropdownMenuItem(value: "Nizwa", child: Text("نزوى")),
-                              DropdownMenuItem(value: "Sohar", child: Text("صحار")),
-                              DropdownMenuItem(value: "Sur", child: Text("صور")),
-                            ],
+                    title: Text(
+                      _selectedLanguage == 'en' ? "Luban TV Settings" : "إعدادات لانشر لبان",
+                      style: const TextStyle(color: Colors.white, fontSize: 18),
+                    ),
+                    content: SingleChildScrollView(
+                      child: Column(
+                        mainAxisSize: MainAxisSize.min,
+                        children: [
+                          ListTile(
+                            leading: const Icon(Icons.language, color: Color(0xFF38BDF8)),
+                            title: Text(_selectedLanguage == 'en' ? "Language Mode" : "وضع اللغة"),
+                            trailing: DropdownButton<String>(
+                              value: _selectedLanguage,
+                              dropdownColor: const Color(0xFF0F172A),
+                              items: const [
+                                DropdownMenuItem(value: "hybrid", child: Text("مختلط (عربي + إنجليزي)")),
+                                DropdownMenuItem(value: "ar", child: Text("كامل عربي (Full Arabic)")),
+                                DropdownMenuItem(value: "en", child: Text("كامل إنجليزي (Full English)")),
+                              ],
+                              onChanged: (val) async {
+                                if (val != null) {
+                                  final prefs = await SharedPreferences.getInstance();
+                                  await prefs.setString('pref_language', val);
+                                  setDlgState(() => _selectedLanguage = val);
+                                  setState(() => _selectedLanguage = val);
+                                  _fetchPrayerAndDateData();
+                                }
+                              },
+                            ),
+                          ),
+                          ListTile(
+                            leading: const Icon(Icons.font_download, color: Color(0xFF38BDF8)),
+                            title: Text(_selectedLanguage == 'en' ? "Font Family" : "نوع الخط"),
+                            trailing: DropdownButton<String>(
+                              value: _selectedFont,
+                              dropdownColor: const Color(0xFF0F172A),
+                              items: const [
+                                DropdownMenuItem(value: "Cairo", child: Text("Cairo")),
+                                DropdownMenuItem(value: "Tajawal", child: Text("Tajawal")),
+                                DropdownMenuItem(value: "Almarai", child: Text("Almarai")),
+                                DropdownMenuItem(value: "Changa", child: Text("Changa")),
+                                DropdownMenuItem(value: "Readex Pro", child: Text("Readex Pro")),
+                                DropdownMenuItem(value: "Amiri", child: Text("Amiri")),
+                              ],
+                              onChanged: (val) async {
+                                if (val != null) {
+                                  final prefs = await SharedPreferences.getInstance();
+                                  await prefs.setString('pref_font', val);
+                                  setDlgState(() => _selectedFont = val);
+                                  setState(() => _selectedFont = val);
+                                  LubanTVApp.restartApp(context);
+                                }
+                              },
+                            ),
+                          ),
+                          ListTile(
+                            leading: const Icon(Icons.location_city, color: Color(0xFF38BDF8)),
+                            title: Text(_selectedLanguage == 'en' ? "Prayer Times City" : "مدينة أوقات الصلاة"),
+                            trailing: DropdownButton<String>(
+                              value: _selectedCity,
+                              dropdownColor: const Color(0xFF0F172A),
+                              items: [
+                                DropdownMenuItem(value: "Salalah", child: Text(_selectedLanguage == 'en' ? "Salalah" : "صلالة")),
+                                DropdownMenuItem(value: "Muscat", child: Text(_selectedLanguage == 'en' ? "Muscat" : "مسقط")),
+                                DropdownMenuItem(value: "Nizwa", child: Text(_selectedLanguage == 'en' ? "Nizwa" : "نزوى")),
+                                DropdownMenuItem(value: "Sohar", child: Text(_selectedLanguage == 'en' ? "Sohar" : "صحار")),
+                                DropdownMenuItem(value: "Sur", child: Text(_selectedLanguage == 'en' ? "Sur" : "صور")),
+                              ],
+                              onChanged: (val) async {
+                                if (val != null) {
+                                  final mapAr = {
+                                    "Salalah": "صلالة",
+                                    "Muscat": "مسقط",
+                                    "Nizwa": "نزوى",
+                                    "Sohar": "صحار",
+                                    "Sur": "صور",
+                                  };
+                                  final prefs = await SharedPreferences.getInstance();
+                                  await prefs.setString('pref_city', val);
+                                  await prefs.setString('pref_city_ar', mapAr[val]!);
+                                  setDlgState(() {
+                                    _selectedCity = val;
+                                    _selectedCityAr = mapAr[val]!;
+                                  });
+                                  setState(() {
+                                    _selectedCity = val;
+                                    _selectedCityAr = mapAr[val]!;
+                                  });
+                                  _fetchPrayerAndDateData();
+                                }
+                              },
+                            ),
+                          ),
+                          SwitchListTile(
+                            activeColor: const Color(0xFF38BDF8),
+                            secondary: const Icon(Icons.sports_soccer, color: Color(0xFF38BDF8)),
+                            title: Text(_selectedLanguage == 'en' ? "Show Matches Bar" : "عرض شريط مباريات اليوم"),
+                            value: _showMatchesBar,
                             onChanged: (val) async {
-                              if (val != null) {
-                                final mapAr = {
-                                  "Salalah": "صلالة",
-                                  "Muscat": "مسقط",
-                                  "Nizwa": "نزوى",
-                                  "Sohar": "صحار",
-                                  "Sur": "صور",
-                                };
-                                final prefs = await SharedPreferences.getInstance();
-                                await prefs.setString('pref_city', val);
-                                await prefs.setString('pref_city_ar', mapAr[val]!);
-                                setDlgState(() {
-                                  _selectedCity = val;
-                                  _selectedCityAr = mapAr[val]!;
-                                });
-                                setState(() {
-                                  _selectedCity = val;
-                                  _selectedCityAr = mapAr[val]!;
-                                });
-                                _fetchPrayerAndDateData();
-                              }
+                              final prefs = await SharedPreferences.getInstance();
+                              await prefs.setBool('pref_show_matches', val);
+                              setDlgState(() => _showMatchesBar = val);
+                              setState(() => _showMatchesBar = val);
                             },
                           ),
-                        ),
-                        SwitchListTile(
-                          activeColor: const Color(0xFF38BDF8),
-                          secondary: const Icon(Icons.sports_soccer, color: Color(0xFF38BDF8)),
-                          title: const Text("عرض شريط مباريات اليوم"),
-                          value: _showMatchesBar,
-                          onChanged: (val) async {
-                            final prefs = await SharedPreferences.getInstance();
-                            await prefs.setBool('pref_show_matches', val);
-                            setDlgState(() => _showMatchesBar = val);
-                            setState(() => _showMatchesBar = val);
-                          },
-                        ),
-                      ],
+                        ],
+                      ),
                     ),
                     actions: [
                       TextButton(
                         onPressed: () => Navigator.pop(ctx),
-                        child: const Text("إغلاق", style: TextStyle(color: Color(0xFF38BDF8))),
+                        child: Text(_selectedLanguage == 'en' ? "Close" : "إغلاق", style: const TextStyle(color: Color(0xFF38BDF8))),
                       ),
                     ],
                   ),
@@ -391,12 +488,12 @@ jobs:
                 context: context,
                 builder: (ctx) => AlertDialog(
                   backgroundColor: const Color(0xFF1E293B),
-                  title: const Text("الخروج من اللانشر", style: TextStyle(color: Colors.white, fontSize: 18)),
-                  content: const Text("هل تريد إغلاق اللانشر والعودة للشاشة السابقة؟"),
+                  title: Text(_selectedLanguage == 'en' ? "Exit Launcher" : "الخروج من اللانشر", style: const TextStyle(color: Colors.white, fontSize: 18)),
+                  content: Text(_selectedLanguage == 'en' ? "Do you want to close Luban TV and return to default home?" : "هل تريد إغلاق اللانشر والعودة للشاشة السابقة؟"),
                   actions: [
                     TextButton(
                       onPressed: () => Navigator.pop(ctx),
-                      child: const Text("إلغاء", style: TextStyle(color: Colors.white70)),
+                      child: Text(_selectedLanguage == 'en' ? "Cancel" : "إلغاء", style: const TextStyle(color: Colors.white70)),
                     ),
                     ElevatedButton(
                       style: ElevatedButton.styleFrom(backgroundColor: Colors.redAccent),
@@ -404,7 +501,7 @@ jobs:
                         Navigator.pop(ctx);
                         SystemNavigator.pop();
                       },
-                      child: const Text("خروج"),
+                      child: Text(_selectedLanguage == 'en' ? "Exit" : "خروج"),
                     ),
                   ],
                 ),
@@ -424,7 +521,7 @@ jobs:
                       if (index > 0)
                         ListTile(
                           leading: const Icon(Icons.arrow_back, color: Color(0xFF38BDF8)),
-                          title: const Text("تحريك لليسار"),
+                          title: Text(_selectedLanguage == 'en' ? "Move Left" : "تحريك لليسار"),
                           onTap: () {
                             Navigator.pop(ctx);
                             _moveApp(index, index - 1);
@@ -433,7 +530,7 @@ jobs:
                       if (index < _favoriteApps.length - 1)
                         ListTile(
                           leading: const Icon(Icons.arrow_forward, color: Color(0xFF38BDF8)),
-                          title: const Text("تحريك لليمين"),
+                          title: Text(_selectedLanguage == 'en' ? "Move Right" : "تحريك لليمين"),
                           onTap: () {
                             Navigator.pop(ctx);
                             _moveApp(index, index + 1);
@@ -441,7 +538,7 @@ jobs:
                         ),
                       ListTile(
                         leading: const Icon(Icons.delete_outline, color: Colors.redAccent),
-                        title: const Text("إزالة من المفضلة", style: TextStyle(color: Colors.redAccent)),
+                        title: Text(_selectedLanguage == 'en' ? "Remove from Favorites" : "إزالة من المفضلة", style: const TextStyle(color: Colors.redAccent)),
                         onTap: () {
                           Navigator.pop(ctx);
                           _removeApp(index);
@@ -466,9 +563,9 @@ jobs:
                     child: Column(
                       crossAxisAlignment: CrossAxisAlignment.start,
                       children: [
-                        const Text(
-                          "تخصيص المفضلة",
-                          style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold, color: Colors.white),
+                        Text(
+                          _selectedLanguage == 'en' ? "Customize Favorite Apps" : "تخصيص التطبيقات المفضلة",
+                          style: const TextStyle(fontSize: 18, fontWeight: FontWeight.bold, color: Colors.white),
                         ),
                         const SizedBox(height: 16),
                         Expanded(
@@ -552,19 +649,29 @@ jobs:
                   final hijri = jsonBody['date']['hijri'];
                   
                   final hDay = hijri['day'];
-                  final hMonth = hijri['month']['ar'];
+                  final hMonth = _selectedLanguage == 'en' ? hijri['month']['en'] : hijri['month']['ar'];
                   final hYear = hijri['year'];
 
                   if (mounted) {
                     setState(() {
-                      _hijriDateStr = "$hDay $hMonth $hYear هـ";
-                      _prayerTimes = {
-                        'الفجر': timings['Fajr'],
-                        'الظهر': timings['Dhuhr'],
-                        'العصر': timings['Asr'],
-                        'المغرب': timings['Maghrib'],
-                        'العشاء': timings['Isha'],
-                      };
+                      _hijriDateStr = "$hDay $hMonth $hYear ${_selectedLanguage == 'en' ? 'AH' : 'هـ'}";
+                      if (_selectedLanguage == 'en') {
+                        _prayerTimes = {
+                          'Fajr': timings['Fajr'],
+                          'Dhuhr': timings['Dhuhr'],
+                          'Asr': timings['Asr'],
+                          'Maghrib': timings['Maghrib'],
+                          'Isha': timings['Isha'],
+                        };
+                      } else {
+                        _prayerTimes = {
+                          'الفجر': timings['Fajr'],
+                          'الظهر': timings['Dhuhr'],
+                          'العصر': timings['Asr'],
+                          'المغرب': timings['Maghrib'],
+                          'العشاء': timings['Isha'],
+                        };
+                      }
                     });
                   }
                 }
@@ -614,318 +721,328 @@ jobs:
 
             @override
             Widget build(BuildContext context) {
+              final isEn = _selectedLanguage == 'en';
+              final isAr = _selectedLanguage == 'ar';
+
               final timeStr = DateFormat('hh:mm').format(_currentTime);
-              final periodStr = DateFormat('a').format(_currentTime) == 'AM' ? 'ص' : 'م';
+              final periodStr = isEn 
+                  ? DateFormat('a').format(_currentTime)
+                  : (DateFormat('a').format(_currentTime) == 'AM' ? 'ص' : 'م');
+
               final dateArStr = DateFormat('EEEE، d MMMM y', 'ar').format(_currentTime);
               final dateEnStr = DateFormat('EEEE, d MMMM y', 'en').format(_currentTime);
 
-              return Scaffold(
-                body: Stack(
-                  children: [
-                    Positioned.fill(
-                      child: Image.network(
-                        _getDynamicBackground(),
-                        fit: BoxFit.cover,
-                        errorBuilder: (ctx, _, __) => Container(
-                          decoration: const BoxDecoration(
-                            gradient: LinearGradient(
-                              colors: [Color(0xFF0F172A), Color(0xFF020617)],
+              return Directionality(
+                textDirection: isEn ? TextDirection.ltr : TextDirection.rtl,
+                child: Scaffold(
+                  body: Stack(
+                    children: [
+                      Positioned.fill(
+                        child: Image.network(
+                          _getDynamicBackground(),
+                          fit: BoxFit.cover,
+                          errorBuilder: (ctx, _, __) => Container(
+                            decoration: const BoxDecoration(
+                              gradient: LinearGradient(
+                                colors: [Color(0xFF0F172A), Color(0xFF020617)],
+                              ),
                             ),
                           ),
                         ),
                       ),
-                    ),
-                    Positioned.fill(
-                      child: Container(
-                        color: Colors.black.withOpacity(0.55),
+                      Positioned.fill(
+                        child: Container(
+                          color: Colors.black.withOpacity(0.55),
+                        ),
                       ),
-                    ),
-                    SafeArea(
-                      child: Padding(
-                        padding: const EdgeInsets.symmetric(horizontal: 44, vertical: 20),
-                        child: Column(
-                          crossAxisAlignment: CrossAxisAlignment.start,
-                          children: [
-                            // الشريط العلوي (الساعة، التواريخ، الإعدادات، وأوقات الصلاة)
-                            Row(
-                              crossAxisAlignment: CrossAxisAlignment.center,
-                              children: [
-                                Row(
-                                  crossAxisAlignment: CrossAxisAlignment.baseline,
-                                  textBaseline: TextBaseline.alphabetic,
-                                  children: [
-                                    Text(
-                                      timeStr,
-                                      style: const TextStyle(
-                                        fontSize: 52,
-                                        fontWeight: FontWeight.bold,
-                                        color: Colors.white,
-                                        shadows: [Shadow(color: Colors.black, blurRadius: 10)],
-                                      ),
-                                    ),
-                                    const SizedBox(width: 8),
-                                    Text(
-                                      periodStr,
-                                      style: const TextStyle(fontSize: 20, color: Colors.white70),
-                                    ),
-                                  ],
-                                ),
-                                const SizedBox(width: 22),
-                                Column(
-                                  crossAxisAlignment: CrossAxisAlignment.start,
-                                  children: [
-                                    Text(
-                                      _hijriDateStr,
-                                      style: const TextStyle(
-                                        fontSize: 14,
-                                        fontWeight: FontWeight.bold,
-                                        color: Color(0xFFFBBF24),
-                                        shadows: [Shadow(color: Colors.black, blurRadius: 6)],
-                                      ),
-                                    ),
-                                    const SizedBox(height: 2),
-                                    Text(dateArStr, style: const TextStyle(fontSize: 13, color: Colors.white70)),
-                                    const SizedBox(height: 2),
-                                    Text(dateEnStr, style: const TextStyle(fontSize: 11, color: Colors.white38)),
-                                  ],
-                                ),
-                                const SizedBox(width: 20),
-                                // أزرار الإعدادات والخروج
-                                Row(
-                                  children: [
-                                    _buildTopButton(
-                                      icon: Icons.settings,
-                                      tooltip: "إعدادات التلفزيون",
-                                      onTap: _openSystemSettings,
-                                    ),
-                                    const SizedBox(width: 8),
-                                    _buildTopButton(
-                                      icon: Icons.tune,
-                                      tooltip: "إعدادات لانشر لبان",
-                                      onTap: _showLauncherSettingsDialog,
-                                    ),
-                                    const SizedBox(width: 8),
-                                    _buildTopButton(
-                                      icon: Icons.power_settings_new,
-                                      tooltip: "خروج من اللانشر",
-                                      onTap: _showExitDialog,
-                                      color: Colors.redAccent.withOpacity(0.85),
-                                    ),
-                                  ],
-                                ),
-                                const Spacer(),
-                                Container(
-                                  padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 8),
-                                  decoration: BoxDecoration(
-                                    color: Colors.black.withOpacity(0.58),
-                                    borderRadius: BorderRadius.circular(18),
-                                    border: Border.all(color: Colors.white24),
-                                  ),
-                                  child: Row(
-                                    mainAxisSize: MainAxisSize.min,
+                      SafeArea(
+                        child: Padding(
+                          padding: const EdgeInsets.symmetric(horizontal: 44, vertical: 20),
+                          child: Column(
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            children: [
+                              Row(
+                                crossAxisAlignment: CrossAxisAlignment.center,
+                                children: [
+                                  Row(
+                                    crossAxisAlignment: CrossAxisAlignment.baseline,
+                                    textBaseline: TextBaseline.alphabetic,
                                     children: [
-                                      Padding(
-                                        padding: const EdgeInsets.symmetric(horizontal: 6),
-                                        child: Text(
-                                          _selectedCityAr,
-                                          style: const TextStyle(fontSize: 12, fontWeight: FontWeight.bold, color: Color(0xFF38BDF8)),
+                                      Text(
+                                        timeStr,
+                                        style: const TextStyle(
+                                          fontSize: 52,
+                                          fontWeight: FontWeight.bold,
+                                          color: Colors.white,
+                                          shadows: [Shadow(color: Colors.black, blurRadius: 10)],
                                         ),
                                       ),
-                                      const VerticalDivider(color: Colors.white24, thickness: 1),
-                                      ..._prayerTimes.entries.map((entry) {
-                                        return Padding(
-                                          padding: const EdgeInsets.symmetric(horizontal: 6),
-                                          child: Column(
-                                            mainAxisSize: MainAxisSize.min,
-                                            children: [
-                                              Text(entry.key, style: const TextStyle(fontSize: 11, color: Colors.white70)),
-                                              const SizedBox(height: 3),
-                                              Text(
-                                                entry.value,
-                                                style: const TextStyle(
-                                                  fontSize: 13,
-                                                  fontWeight: FontWeight.bold,
-                                                  color: Color(0xFF38BDF8),
-                                                ),
-                                              ),
-                                            ],
-                                          ),
-                                        );
-                                      }).toList(),
+                                      const SizedBox(width: 8),
+                                      Text(
+                                        periodStr,
+                                        style: const TextStyle(fontSize: 20, color: Colors.white70),
+                                      ),
                                     ],
                                   ),
-                                ),
-                              ],
-                            ),
-
-                            const Spacer(),
-
-                            // مباريات اليوم (يمكن إخفاؤها أو إظهارها من الإعدادات)
-                            if (_showMatchesBar) ...[
-                              Row(
-                                children: const [
-                                  Icon(Icons.sports_soccer, size: 20, color: Color(0xFF38BDF8)),
-                                  SizedBox(width: 8),
-                                  Text(
-                                    "مباريات اليوم",
-                                    style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold, color: Colors.white),
+                                  const SizedBox(width: 22),
+                                  Column(
+                                    crossAxisAlignment: CrossAxisAlignment.start,
+                                    children: [
+                                      Text(
+                                        _hijriDateStr,
+                                        style: const TextStyle(
+                                          fontSize: 14,
+                                          fontWeight: FontWeight.bold,
+                                          color: Color(0xFFFBBF24),
+                                          shadows: [Shadow(color: Colors.black, blurRadius: 6)],
+                                        ),
+                                      ),
+                                      const SizedBox(height: 2),
+                                      if (!isEn)
+                                        Text(dateArStr, style: const TextStyle(fontSize: 13, color: Colors.white70)),
+                                      if (!isAr)
+                                        Text(dateEnStr, style: TextStyle(fontSize: 11, color: isEn ? Colors.white70 : Colors.white38)),
+                                    ],
+                                  ),
+                                  const SizedBox(width: 20),
+                                  Row(
+                                    children: [
+                                      _buildTopButton(
+                                        icon: Icons.settings,
+                                        tooltip: isEn ? "System Settings" : "إعدادات التلفزيون",
+                                        onTap: _openSystemSettings,
+                                      ),
+                                      const SizedBox(width: 8),
+                                      _buildTopButton(
+                                        icon: Icons.tune,
+                                        tooltip: isEn ? "Luban Settings" : "إعدادات لانشر لبان",
+                                        onTap: _showLauncherSettingsDialog,
+                                      ),
+                                      const SizedBox(width: 8),
+                                      _buildTopButton(
+                                        icon: Icons.power_settings_new,
+                                        tooltip: isEn ? "Exit Launcher" : "خروج من اللانشر",
+                                        onTap: _showExitDialog,
+                                        color: Colors.redAccent.withOpacity(0.85),
+                                      ),
+                                    ],
+                                  ),
+                                  const Spacer(),
+                                  Container(
+                                    padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 8),
+                                    decoration: BoxDecoration(
+                                      color: Colors.black.withOpacity(0.58),
+                                      borderRadius: BorderRadius.circular(18),
+                                      border: Border.all(color: Colors.white24),
+                                    ),
+                                    child: Row(
+                                      mainAxisSize: MainAxisSize.min,
+                                      children: [
+                                        Padding(
+                                          padding: const EdgeInsets.symmetric(horizontal: 6),
+                                          child: Text(
+                                            isEn ? _selectedCity : _selectedCityAr,
+                                            style: const TextStyle(fontSize: 12, fontWeight: FontWeight.bold, color: Color(0xFF38BDF8)),
+                                          ),
+                                        ),
+                                        const VerticalDivider(color: Colors.white24, thickness: 1),
+                                        ..._prayerTimes.entries.map((entry) {
+                                          return Padding(
+                                            padding: const EdgeInsets.symmetric(horizontal: 6),
+                                            child: Column(
+                                              mainAxisSize: MainAxisSize.min,
+                                              children: [
+                                                Text(entry.key, style: const TextStyle(fontSize: 11, color: Colors.white70)),
+                                                const SizedBox(height: 3),
+                                                Text(
+                                                  entry.value,
+                                                  style: const TextStyle(
+                                                    fontSize: 13,
+                                                    fontWeight: FontWeight.bold,
+                                                    color: Color(0xFF38BDF8),
+                                                  ),
+                                                ),
+                                              ],
+                                            ),
+                                          );
+                                        }).toList(),
+                                      ],
+                                    ),
                                   ),
                                 ],
                               ),
-                              const SizedBox(height: 10),
-                              SizedBox(
-                                height: 82,
-                                child: ListView.builder(
-                                  scrollDirection: Axis.horizontal,
-                                  itemCount: _matches.length,
-                                  itemBuilder: (context, index) {
-                                    final m = _matches[index];
-                                    return Focus(
-                                      child: Builder(builder: (ctx) {
-                                        final isFocused = Focus.of(ctx).hasFocus;
-                                        return AnimatedContainer(
-                                          duration: const Duration(milliseconds: 160),
-                                          width: 235,
-                                          margin: const EdgeInsets.only(right: 16),
-                                          transform: isFocused ? (Matrix4.identity()..scale(1.06)) : Matrix4.identity(),
-                                          padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 8),
-                                          decoration: BoxDecoration(
-                                            color: isFocused ? const Color(0xFF1E293B).withOpacity(0.95) : Colors.black.withOpacity(0.55),
-                                            borderRadius: BorderRadius.circular(16),
-                                            border: Border.all(
-                                              color: isFocused ? const Color(0xFF38BDF8) : Colors.white12,
-                                              width: isFocused ? 2.5 : 1,
-                                            ),
-                                            boxShadow: isFocused
-                                                ? [BoxShadow(color: const Color(0xFF38BDF8).withOpacity(0.4), blurRadius: 16, spreadRadius: 1)]
-                                                : [],
-                                          ),
-                                          child: Column(
-                                            mainAxisAlignment: MainAxisAlignment.center,
-                                            children: [
-                                              Text(
-                                                m['league']!,
-                                                style: const TextStyle(fontSize: 11, color: Color(0xFF38BDF8), fontWeight: FontWeight.bold),
-                                              ),
-                                              const SizedBox(height: 5),
-                                              Row(
-                                                mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                                                children: [
-                                                  Expanded(
-                                                    child: Text(
-                                                      m['teamA']!,
-                                                      textAlign: TextAlign.center,
-                                                      style: const TextStyle(fontSize: 12, fontWeight: FontWeight.bold),
-                                                      overflow: TextOverflow.ellipsis,
-                                                    ),
-                                                  ),
-                                                  Container(
-                                                    padding: const EdgeInsets.symmetric(horizontal: 7, vertical: 2),
-                                                    decoration: BoxDecoration(color: Colors.white12, borderRadius: BorderRadius.circular(6)),
-                                                    child: Text(
-                                                      m['time']!,
-                                                      style: const TextStyle(fontSize: 10, color: Colors.amberAccent, fontWeight: FontWeight.bold),
-                                                    ),
-                                                  ),
-                                                  Expanded(
-                                                    child: Text(
-                                                      m['teamB']!,
-                                                      textAlign: TextAlign.center,
-                                                      style: const TextStyle(fontSize: 12, fontWeight: FontWeight.bold),
-                                                      overflow: TextOverflow.ellipsis,
-                                                    ),
-                                                  ),
-                                                ],
-                                              ),
-                                            ],
-                                          ),
-                                        );
-                                      }),
-                                    );
-                                  },
-                                ),
-                              ),
-                              const SizedBox(height: 18),
-                            ],
 
-                            // شريط التطبيقات المفضلة
-                            Row(
-                              children: [
-                                const Text(
-                                  "التطبيقات المفضلة",
-                                  style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold, color: Colors.white),
+                              const Spacer(),
+
+                              if (_showMatchesBar) ...[
+                                Row(
+                                  children: [
+                                    const Icon(Icons.sports_soccer, size: 20, color: Color(0xFF38BDF8)),
+                                    const SizedBox(width: 8),
+                                    Text(
+                                      isEn ? "Today's Matches" : "مباريات اليوم",
+                                      style: const TextStyle(fontSize: 16, fontWeight: FontWeight.bold, color: Colors.white),
+                                    ),
+                                  ],
                                 ),
-                                const SizedBox(width: 12),
-                                Text(
-                                  "(اضغط مطولاً بالريموت لإعادة الترتيب أو الحذف)",
-                                  style: TextStyle(fontSize: 12, color: Colors.white.withOpacity(0.5)),
+                                const SizedBox(height: 10),
+                                SizedBox(
+                                  height: 82,
+                                  child: ListView.builder(
+                                    scrollDirection: Axis.horizontal,
+                                    itemCount: _matches.length,
+                                    itemBuilder: (context, index) {
+                                      final m = _matches[index];
+                                      final league = isEn ? m['league_en'] : m['league_ar'];
+                                      final teamA = isEn ? m['teamA_en'] : m['teamA_ar'];
+                                      final teamB = isEn ? m['teamB_en'] : m['teamB_ar'];
+                                      final mTime = isEn ? m['time_en'] : m['time_ar'];
+
+                                      return Focus(
+                                        child: Builder(builder: (ctx) {
+                                          final isFocused = Focus.of(ctx).hasFocus;
+                                          return AnimatedContainer(
+                                            duration: const Duration(milliseconds: 160),
+                                            width: 235,
+                                            margin: const EdgeInsets.only(right: 16),
+                                            transform: isFocused ? (Matrix4.identity()..scale(1.06)) : Matrix4.identity(),
+                                            padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 8),
+                                            decoration: BoxDecoration(
+                                              color: isFocused ? const Color(0xFF1E293B).withOpacity(0.95) : Colors.black.withOpacity(0.55),
+                                              borderRadius: BorderRadius.circular(16),
+                                              border: Border.all(
+                                                color: isFocused ? const Color(0xFF38BDF8) : Colors.white12,
+                                                width: isFocused ? 2.5 : 1,
+                                              ),
+                                              boxShadow: isFocused
+                                                  ? [BoxShadow(color: const Color(0xFF38BDF8).withOpacity(0.4), blurRadius: 16, spreadRadius: 1)]
+                                                  : [],
+                                            ),
+                                            child: Column(
+                                              mainAxisAlignment: MainAxisAlignment.center,
+                                              children: [
+                                                Text(
+                                                  league,
+                                                  style: const TextStyle(fontSize: 11, color: Color(0xFF38BDF8), fontWeight: FontWeight.bold),
+                                                ),
+                                                const SizedBox(height: 5),
+                                                Row(
+                                                  mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                                                  children: [
+                                                    Expanded(
+                                                      child: Text(
+                                                        teamA,
+                                                        textAlign: TextAlign.center,
+                                                        style: const TextStyle(fontSize: 12, fontWeight: FontWeight.bold),
+                                                        overflow: TextOverflow.ellipsis,
+                                                      ),
+                                                    ),
+                                                    Container(
+                                                      padding: const EdgeInsets.symmetric(horizontal: 7, vertical: 2),
+                                                      decoration: BoxDecoration(color: Colors.white12, borderRadius: BorderRadius.circular(6)),
+                                                      child: Text(
+                                                        mTime,
+                                                        style: const TextStyle(fontSize: 10, color: Colors.amberAccent, fontWeight: FontWeight.bold),
+                                                      ),
+                                                    ),
+                                                    Expanded(
+                                                      child: Text(
+                                                        teamB,
+                                                        textAlign: TextAlign.center,
+                                                        style: const TextStyle(fontSize: 12, fontWeight: FontWeight.bold),
+                                                        overflow: TextOverflow.ellipsis,
+                                                      ),
+                                                    ),
+                                                  ],
+                                                ),
+                                              ],
+                                            ),
+                                          );
+                                        }),
+                                      );
+                                    },
+                                  ),
                                 ),
+                                const SizedBox(height: 18),
                               ],
-                            ),
-                            const SizedBox(height: 12),
-                            SizedBox(
-                              height: 125,
-                              child: _loadingApps
-                                  ? const Center(child: CircularProgressIndicator())
-                                  : ListView.builder(
-                                      scrollDirection: Axis.horizontal,
-                                      itemCount: _favoriteApps.length + 1,
-                                      itemBuilder: (context, index) {
-                                        if (index == _favoriteApps.length) {
+
+                              Row(
+                                children: [
+                                  Text(
+                                    isEn ? "Favorite Apps" : "التطبيقات المفضلة",
+                                    style: const TextStyle(fontSize: 16, fontWeight: FontWeight.bold, color: Colors.white),
+                                  ),
+                                  const SizedBox(width: 12),
+                                  Text(
+                                    isEn ? "(Long-press to reorder or remove)" : "(اضغط مطولاً بالريموت لإعادة الترتيب أو الحذف)",
+                                    style: TextStyle(fontSize: 12, color: Colors.white.withOpacity(0.5)),
+                                  ),
+                                ],
+                              ),
+                              const SizedBox(height: 12),
+                              SizedBox(
+                                height: 125,
+                                child: _loadingApps
+                                    ? const Center(child: CircularProgressIndicator())
+                                    : ListView.builder(
+                                        scrollDirection: Axis.horizontal,
+                                        itemCount: _favoriteApps.length + 1,
+                                        itemBuilder: (context, index) {
+                                          if (index == _favoriteApps.length) {
+                                            return Focus(
+                                              child: Builder(builder: (ctx) {
+                                                final isFocused = Focus.of(ctx).hasFocus;
+                                                return GestureDetector(
+                                                  onTap: _openAllAppsModal,
+                                                  child: AnimatedContainer(
+                                                    duration: const Duration(milliseconds: 160),
+                                                    width: 110,
+                                                    margin: const EdgeInsets.only(right: 16),
+                                                    transform: isFocused ? (Matrix4.identity()..scale(1.08)) : Matrix4.identity(),
+                                                    decoration: BoxDecoration(
+                                                      color: isFocused ? const Color(0xFF1E293B).withOpacity(0.95) : Colors.black.withOpacity(0.4),
+                                                      borderRadius: BorderRadius.circular(18),
+                                                      border: Border.all(
+                                                        color: isFocused ? const Color(0xFF38BDF8) : Colors.white24,
+                                                        width: isFocused ? 2.5 : 1,
+                                                      ),
+                                                    ),
+                                                    child: Column(
+                                                      mainAxisAlignment: MainAxisAlignment.center,
+                                                      children: [
+                                                        const Icon(Icons.add_rounded, size: 40, color: Color(0xFF38BDF8)),
+                                                        const SizedBox(height: 6),
+                                                        Text(isEn ? "Customize" : "تخصيص", style: const TextStyle(fontSize: 12, color: Colors.white70)),
+                                                      ],
+                                                    ),
+                                                  ),
+                                                );
+                                              }),
+                                            );
+                                          }
+
+                                          final app = _favoriteApps[index];
                                           return Focus(
                                             child: Builder(builder: (ctx) {
                                               final isFocused = Focus.of(ctx).hasFocus;
                                               return GestureDetector(
-                                                onTap: _openAllAppsModal,
+                                                onTap: () => InstalledApps.startApp(app.packageName),
+                                                onLongPress: () => _showAppOptionsDialog(index),
                                                 child: AnimatedContainer(
                                                   duration: const Duration(milliseconds: 160),
-                                                  width: 110,
+                                                  width: 115,
                                                   margin: const EdgeInsets.only(right: 16),
                                                   transform: isFocused ? (Matrix4.identity()..scale(1.08)) : Matrix4.identity(),
                                                   decoration: BoxDecoration(
-                                                    color: isFocused ? const Color(0xFF1E293B).withOpacity(0.95) : Colors.black.withOpacity(0.4),
+                                                    color: isFocused ? const Color(0xFF1E293B).withOpacity(0.95) : Colors.black.withOpacity(0.55),
                                                     borderRadius: BorderRadius.circular(18),
                                                     border: Border.all(
-                                                      color: isFocused ? const Color(0xFF38BDF8) : Colors.white24,
+                                                      color: isFocused ? const Color(0xFF38BDF8) : Colors.white12,
                                                       width: isFocused ? 2.5 : 1,
                                                     ),
-                                                  ),
-                                                  child: Column(
-                                                    mainAxisAlignment: MainAxisAlignment.center,
-                                                    children: const [
-                                                      Icon(Icons.add_rounded, size: 40, color: Color(0xFF38BDF8)),
-                                                      SizedBox(height: 6),
-                                                      Text("تخصيص", style: TextStyle(fontSize: 12, color: Colors.white70)),
-                                                    ],
-                                                  ),
-                                                ),
-                                              );
-                                            }),
-                                          );
-                                        }
-
-                                        final app = _favoriteApps[index];
-                                        return Focus(
-                                          child: Builder(builder: (ctx) {
-                                            final isFocused = Focus.of(ctx).hasFocus;
-                                            return GestureDetector(
-                                              onTap: () => InstalledApps.startApp(app.packageName),
-                                              onLongPress: () => _showAppOptionsDialog(index),
-                                              child: AnimatedContainer(
-                                                duration: const Duration(milliseconds: 160),
-                                                width: 115,
-                                                margin: const EdgeInsets.only(right: 16),
-                                                transform: isFocused ? (Matrix4.identity()..scale(1.08)) : Matrix4.identity(),
-                                                decoration: BoxDecoration(
-                                                  color: isFocused ? const Color(0xFF1E293B).withOpacity(0.95) : Colors.black.withOpacity(0.55),
-                                                  borderRadius: BorderRadius.circular(18),
-                                                  border: Border.all(
-                                                    color: isFocused ? const Color(0xFF38BDF8) : Colors.white12,
-                                                    width: isFocused ? 2.5 : 1,
-                                                  ),
-                                                  boxShadow: isFocused
-                                                      ? [BoxShadow(color: const Color(0xFF38BDF8).withOpacity(0.45), blurRadius: 18, spreadRadius: 2)]
-                                                      : [],
+                                                    boxShadow: isFocused
+                                                        ? [BoxShadow(color: const Color(0xFF38BDF8).withOpacity(0.45), blurRadius: 18, spreadRadius: 2)]
+                                                        : [],
                                                 ),
                                                 child: Column(
                                                   mainAxisAlignment: MainAxisAlignment.center,
@@ -947,19 +1064,19 @@ jobs:
                                                     ),
                                                   ],
                                                 ),
-                                              ),
-                                            );
-                                          }),
-                                        );
-                                      },
-                                    ),
-                            ),
-                            const SizedBox(height: 6),
-                          ],
+                                              );
+                                            }),
+                                          );
+                                        },
+                                      ),
+                              ),
+                              const SizedBox(height: 6),
+                            ],
+                          ),
                         ),
                       ),
-                    ),
-                  ],
+                    ],
+                  ),
                 ),
               );
             }
@@ -974,5 +1091,5 @@ jobs:
       - name: Upload APK
         uses: actions/upload-artifact@v4
         with:
-          name: Luban-TV-v2.0.0
+          name: Luban-TV-v2.1.0
           path: build/app/outputs/flutter-apk/Luban-TV.apk
