@@ -39,7 +39,7 @@ jobs:
           name: luban_tv
           description: "Luban Ambient Smart TV Launcher"
           publish_to: "none"
-          version: 1.7.0+13
+          version: 1.8.0+14
 
           environment:
             sdk: ">=3.0.0 <4.0.0"
@@ -52,31 +52,59 @@ jobs:
             installed_apps: ^2.1.1
             shared_preferences: ^2.2.3
 
-          dev_dependencies:
-            flutter_launcher_icons: ^0.13.1
-
-          flutter_launcher_icons:
-            android: true
-            image_path: "assets/icon/app_icon.png"
-            adaptive_icon_background: "#090d16"
-            adaptive_icon_foreground: "assets/icon/app_icon.png"
-
           flutter:
             uses-material-design: true
           EOF
           flutter pub get
 
-      - name: Add Icon and TV Banner Resources
+      - name: Generate Native App Icons & TV Banner
         run: |
-          mkdir -p assets/icon
-          curl -s -L -o assets/icon/app_icon.png "https://raw.githubusercontent.com/mo-fadhil/luban-tv-resources/main/luban_icon.png" || \
-          curl -s -L -o assets/icon/app_icon.png "https://i.ibb.co/3mSWhX6/luban-icon.png"
-          
-          flutter pub run flutter_launcher_icons || true
+          sudo apt-get update && sudo apt-get install -y imagemagick
 
+          # إنشاء أيقونة لبان عالية الدقة بألوان الهوية (الكحلي الداكن + الذهبي + الأزرق السماوي)
+          cat << 'EOF' > icon.svg
+          <svg width="512" height="512" viewBox="0 0 512 512" xmlns="http://www.w3.org/2000/svg">
+            <rect width="512" height="512" rx="110" fill="#090D16"/>
+            <rect x="15" y="15" width="482" height="482" rx="95" fill="none" stroke="#38BDF8" stroke-width="8" opacity="0.8"/>
+            <path d="M190 380 L322 380 L300 340 L212 340 Z" fill="#F59E0B"/>
+            <path d="M212 340 L220 270 L292 270 L300 340 Z" fill="#D97706"/>
+            <path d="M170 190 L342 190 L310 270 L202 270 Z" fill="#FBBF24"/>
+            <path d="M256 90 Q220 140 256 180 Q290 140 256 90 Z" fill="#38BDF8" opacity="0.9"/>
+            <path d="M230 110 Q200 150 230 180" stroke="#FDE047" stroke-width="6" fill="none" stroke-linecap="round"/>
+            <path d="M282 110 Q312 150 282 180" stroke="#FDE047" stroke-width="6" fill="none" stroke-linecap="round"/>
+            <text x="256" y="440" font-family="sans-serif" font-size="44" font-weight="bold" fill="#38BDF8" text-anchor="middle">LUBAN TV</text>
+          </svg>
+          EOF
+
+          # تحويل الرمز إلى PNG بدقة 512x512
+          convert -background none icon.svg icon.png
+
+          # استبدال أيقونات الأندرويد الأصلية مباشرة بجميع المقاسات
+          for dir in mipmap-mdpi mipmap-hdpi mipmap-xhdpi mipmap-xxhdpi mipmap-xxxhdpi; do
+            mkdir -p android/app/src/main/res/$dir
+          done
+
+          convert icon.png -resize 48x48 android/app/src/main/res/mipmap-mdpi/ic_launcher.png
+          convert icon.png -resize 72x72 android/app/src/main/res/mipmap-hdpi/ic_launcher.png
+          convert icon.png -resize 96x96 android/app/src/main/res/mipmap-xhdpi/ic_launcher.png
+          convert icon.png -resize 144x144 android/app/src/main/res/mipmap-xxhdpi/ic_launcher.png
+          convert icon.png -resize 192x192 android/app/src/main/res/mipmap-xxxhdpi/ic_launcher.png
+
+          # إنشاء بانر التلفزيون العريض للواجهة الرئيسية (320x180)
           mkdir -p android/app/src/main/res/drawable-xhdpi
-          curl -s -L -o android/app/src/main/res/drawable-xhdpi/ic_launcher_banner.png "https://raw.githubusercontent.com/mo-fadhil/luban-tv-resources/main/luban_banner.png" || \
-          curl -s -L -o android/app/src/main/res/drawable-xhdpi/ic_launcher_banner.png "https://i.ibb.co/6NGpLTL/luban-banner.png"
+          cat << 'EOF' > banner.svg
+          <svg width="320" height="180" viewBox="0 0 320 180" xmlns="http://www.w3.org/2000/svg">
+            <rect width="320" height="180" fill="#090D16"/>
+            <rect x="8" y="8" width="304" height="164" rx="18" fill="none" stroke="#38BDF8" stroke-width="3" opacity="0.6"/>
+            <path d="M80 130 L120 130 L114 116 L86 116 Z" fill="#F59E0B"/>
+            <path d="M86 116 L89 92 L111 92 L114 116 Z" fill="#D97706"/>
+            <path d="M74 65 L126 65 L116 92 L84 92 Z" fill="#FBBF24"/>
+            <path d="M100 30 Q85 50 100 62 Q115 50 100 30 Z" fill="#38BDF8"/>
+            <text x="145" y="96" font-family="sans-serif" font-size="26" font-weight="bold" fill="#FFFFFF">Luban TV</text>
+            <text x="145" y="124" font-family="sans-serif" font-size="16" font-weight="bold" fill="#38BDF8">لانشر لبان الذكي</text>
+          </svg>
+          EOF
+          convert -background none banner.svg android/app/src/main/res/drawable-xhdpi/ic_launcher_banner.png
 
       - name: Configure Android TV Manifest
         run: |
@@ -487,7 +515,6 @@ jobs:
                         child: Column(
                           crossAxisAlignment: CrossAxisAlignment.start,
                           children: [
-                            // الشريط العلوي (الساعة، التواريخ الثلاثة، ومواقيت الصلاة)
                             Row(
                               crossAxisAlignment: CrossAxisAlignment.center,
                               children: [
@@ -515,7 +542,6 @@ jobs:
                                 Column(
                                   crossAxisAlignment: CrossAxisAlignment.start,
                                   children: [
-                                    // التاريخ الهجري
                                     Text(
                                       _hijriDateStr,
                                       style: const TextStyle(
@@ -526,17 +552,9 @@ jobs:
                                       ),
                                     ),
                                     const SizedBox(height: 2),
-                                    // التاريخ الميلادي بالعربي
-                                    Text(
-                                      dateArStr,
-                                      style: const TextStyle(fontSize: 13, color: Colors.white70),
-                                    ),
+                                    Text(dateArStr, style: const TextStyle(fontSize: 13, color: Colors.white70)),
                                     const SizedBox(height: 2),
-                                    // التاريخ بالإنجليزي
-                                    Text(
-                                      dateEnStr,
-                                      style: const TextStyle(fontSize: 11, color: Colors.white38),
-                                    ),
+                                    Text(dateEnStr, style: const TextStyle(fontSize: 11, color: Colors.white38)),
                                   ],
                                 ),
                                 const Spacer(),
@@ -576,7 +594,6 @@ jobs:
 
                             const Spacer(),
 
-                            // مباريات اليوم
                             Row(
                               children: const [
                                 Icon(Icons.sports_soccer, size: 20, color: Color(0xFF38BDF8)),
@@ -663,7 +680,6 @@ jobs:
 
                             const SizedBox(height: 18),
 
-                            // شريط التطبيقات المفضلة
                             Row(
                               children: [
                                 const Text(
@@ -789,5 +805,5 @@ jobs:
       - name: Upload APK
         uses: actions/upload-artifact@v4
         with:
-          name: Luban-TV-v1.7.0
+          name: Luban-TV-v1.8.0
           path: build/app/outputs/flutter-apk/Luban-TV.apk
