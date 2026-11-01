@@ -219,44 +219,18 @@ jobs:
               'العشاء': '--:--',
             };
 
-            final List<Map<String, String>> _matches = [
-              {
-                'league_ar': 'دوري أبطال أوروبا',
-                'league_en': 'UEFA Champions League',
-                'teamA_ar': 'ريال مدريد',
-                'teamA_en': 'Real Madrid',
-                'teamB_ar': 'مانشستر سيتي',
-                'teamB_en': 'Man City',
-                'time_ar': '11:00 م',
-                'time_en': '11:00 PM',
-              },
-              {
-                'league_ar': 'الدوري الإنجليزي',
-                'league_en': 'Premier League',
-                'teamA_ar': 'ليفربول',
-                'teamA_en': 'Liverpool',
-                'teamB_ar': 'أرسنال',
-                'teamB_en': 'Arsenal',
-                'time_ar': '8:30 م',
-                'time_en': '8:30 PM',
-              },
-              {
-                'league_ar': 'دوري روشن',
-                'league_en': 'Roshn Saudi League',
-                'teamA_ar': 'الهلال',
-                'teamA_en': 'Al Hilal',
-                'teamB_ar': 'النصر',
-                'teamB_en': 'Al Nassr',
-                'time_ar': '9:00 م',
-                'time_en': '9:00 PM',
-              },
-            ];
+            List<Map<String, String>> _matches = [];
+            bool _matchesLoading = true;
+            String _matchesError = '';
+            Timer? _matchesTimer;
 
             @override
             void initState() {
               super.initState();
               _loadPreferences();
               _loadAppsAndFavorites();
+              _fetchMatches();
+              _matchesTimer = Timer.periodic(const Duration(minutes: 2), (_) => _fetchMatches());
               _clockTimer = Timer.periodic(const Duration(seconds: 1), (_) {
                 if (mounted) setState(() => _currentTime = DateTime.now());
               });
@@ -265,6 +239,7 @@ jobs:
             @override
             void dispose() {
               _clockTimer?.cancel();
+              _matchesTimer?.cancel();
               super.dispose();
             }
 
@@ -640,6 +615,187 @@ jobs:
               );
             }
 
+            static const Map<String, String> _leagueAr = {
+              'ksa.1': 'دوري روشن السعودي',
+              'uefa.champions': 'دوري أبطال أوروبا',
+              'eng.1': 'الدوري الإنجليزي',
+              'esp.1': 'الدوري الإسباني',
+              'ita.1': 'الدوري الإيطالي',
+              'ger.1': 'الدوري الألماني',
+              'fra.1': 'الدوري الفرنسي',
+            };
+
+            static const Map<String, String> _leagueEn = {
+              'ksa.1': 'Roshn Saudi League',
+              'uefa.champions': 'UEFA Champions League',
+              'eng.1': 'Premier League',
+              'esp.1': 'La Liga',
+              'ita.1': 'Serie A',
+              'ger.1': 'Bundesliga',
+              'fra.1': 'Ligue 1',
+            };
+
+            static const Map<String, String> _teamAr = {
+              'real madrid': 'ريال مدريد',
+              'barcelona': 'برشلونة',
+              'atl': 'أتلتيكو مدريد',
+              'man city': 'مانشستر سيتي',
+              'manchester city': 'مانشستر سيتي',
+              'man united': 'مانشستر يونايتد',
+              'manchester united': 'مانشستر يونايتد',
+              'liverpool': 'ليفربول',
+              'arsenal': 'أرسنال',
+              'chelsea': 'تشيلسي',
+              'tottenham': 'توتنهام',
+              'newcastle': 'نيوكاسل',
+              'bayern': 'بايرن ميونخ',
+              'dortmund': 'دورتموند',
+              'leverkusen': 'ليفركوزن',
+              'psg': 'باريس سان جيرمان',
+              'paris': 'باريس سان جيرمان',
+              'juventus': 'يوفنتوس',
+              'inter': 'إنتر ميلان',
+              'milan': 'ميلان',
+              'napoli': 'نابولي',
+              'roma': 'روما',
+              'hilal': 'الهلال',
+              'nassr': 'النصر',
+              'ittihad': 'الاتحاد',
+              'ahli': 'الأهلي',
+              'shabab': 'الشباب',
+              'ettifaq': 'الاتفاق',
+              'fateh': 'الفتح',
+              'taawoun': 'التعاون',
+              'fayha': 'الفيحاء',
+              'khaleej': 'الخليج',
+              'raed': 'الرائد',
+              'okhdood': 'الأخدود',
+              'damac': 'ضمك',
+              'riyadh': 'الرياض',
+              'kholood': 'الخلود',
+              'qadsiah': 'القادسية',
+              'neom': 'نيوم',
+            };
+
+            String _s(dynamic v) => v == null ? '' : v.toString();
+
+            String _arTeam(String name) {
+              final l = name.toLowerCase();
+              for (final e in _teamAr.entries) {
+                if (l.contains(e.key)) return e.value;
+              }
+              return name;
+            }
+
+            String _fmtTime(DateTime t, bool ar) {
+              var out = DateFormat('h:mm a', 'en').format(t);
+              if (ar) out = out.replaceAll('AM', 'ص').replaceAll('PM', 'م');
+              return out;
+            }
+
+            Future<List<Map<String, String>>> _fetchLeague(String slug) async {
+              final res = await http
+                  .get(Uri.parse('https://site.api.espn.com/apis/site/v2/sports/soccer/$slug/scoreboard'))
+                  .timeout(const Duration(seconds: 15));
+              if (res.statusCode != 200) throw Exception('http ${res.statusCode}');
+
+              final body = json.decode(utf8.decode(res.bodyBytes));
+              final List events = (body['events'] as List?) ?? [];
+              final out = <Map<String, String>>[];
+              final now = DateTime.now();
+
+              for (final e in events) {
+                final comps = e['competitions'] as List?;
+                if (comps == null || comps.isEmpty) continue;
+                final List teams = (comps.first['competitors'] as List?) ?? [];
+
+                dynamic home;
+                dynamic away;
+                for (final t in teams) {
+                  if (t['homeAway'] == 'home') home = t;
+                  if (t['homeAway'] == 'away') away = t;
+                }
+                if (home == null || away == null) continue;
+
+                final state = _s(e['status']?['type']?['state']);
+                final statusName = _s(e['status']?['type']?['name']);
+                if (statusName.contains('POSTPONED') || statusName.contains('CANCELED')) continue;
+
+                final isLive = state == 'in';
+                final kick = DateTime.tryParse(_s(e['date']))?.toLocal();
+                if (kick == null) continue;
+                final sameDay = kick.year == now.year && kick.month == now.month && kick.day == now.day;
+                if (!sameDay && !isLive) continue;
+
+                var homeEn = _s(home['team']?['shortDisplayName']);
+                if (homeEn.isEmpty) homeEn = _s(home['team']?['displayName']);
+                var awayEn = _s(away['team']?['shortDisplayName']);
+                if (awayEn.isEmpty) awayEn = _s(away['team']?['displayName']);
+
+                final showScore = state == 'in' || state == 'post';
+                final scoreTxt = '${_s(home['score'])} - ${_s(away['score'])}';
+
+                out.add({
+                  'league_en': _leagueEn[slug] ?? slug,
+                  'league_ar': _leagueAr[slug] ?? slug,
+                  'teamA_en': homeEn,
+                  'teamA_ar': _arTeam(homeEn),
+                  'teamB_en': awayEn,
+                  'teamB_ar': _arTeam(awayEn),
+                  'time_en': showScore ? scoreTxt : _fmtTime(kick, false),
+                  'time_ar': showScore ? scoreTxt : _fmtTime(kick, true),
+                  'live': isLive.toString(),
+                  'ts': kick.millisecondsSinceEpoch.toString().padLeft(15, '0'),
+                });
+              }
+              return out;
+            }
+
+            Future<void> _fetchMatches() async {
+              int failures = 0;
+              final results = await Future.wait(_leagueAr.keys.map((slug) async {
+                try {
+                  return await _fetchLeague(slug);
+                } catch (_) {
+                  failures++;
+                  return <Map<String, String>>[];
+                }
+              }));
+
+              final all = <Map<String, String>>[];
+              for (final r in results) {
+                all.addAll(r);
+              }
+              all.sort((a, b) => (a['ts'] ?? '').compareTo(b['ts'] ?? ''));
+
+              if (!mounted) return;
+              setState(() {
+                _matchesLoading = false;
+                if (failures == _leagueAr.length) {
+                  _matchesError = 'net';
+                } else {
+                  _matches = all;
+                  _matchesError = '';
+                }
+              });
+            }
+
+            Widget _buildMatchesPlaceholder(bool isEn) {
+              String msg;
+              if (_matchesLoading) {
+                msg = isEn ? 'Loading matches...' : 'جاري تحميل المباريات...';
+              } else if (_matchesError.isNotEmpty) {
+                msg = isEn ? 'Could not load matches' : 'تعذر تحميل المباريات';
+              } else {
+                msg = isEn ? 'No matches today' : 'لا توجد مباريات اليوم';
+              }
+              return Container(
+                height: 84,
+                alignment: AlignmentDirectional.centerStart,
+                child: Text(msg, style: TextStyle(fontSize: 13, color: Colors.white.withOpacity(0.6))),
+              );
+            }
+
             Future<void> _fetchPrayerAndDateData() async {
               try {
                 final res = await http.get(Uri.parse(
@@ -890,7 +1046,7 @@ jobs:
                                   ],
                                 ),
                                 const SizedBox(height: 10),
-                                SizedBox(
+                                if (_matches.isEmpty) _buildMatchesPlaceholder(isEn) else SizedBox(
                                   height: 84,
                                   child: FocusTraversalGroup(
                                     policy: ReadingOrderTraversalPolicy(),
@@ -903,6 +1059,7 @@ jobs:
                                         final teamA = (isEn ? m['teamA_en'] : m['teamA_ar']) ?? '';
                                         final teamB = (isEn ? m['teamB_en'] : m['teamB_ar']) ?? '';
                                         final mTime = (isEn ? m['time_en'] : m['time_ar']) ?? '';
+                                        final isLive = m['live'] == 'true';
 
                                         return Focus(
                                           child: Builder(builder: (ctx) {
@@ -951,7 +1108,7 @@ jobs:
                                                           decoration: BoxDecoration(color: Colors.white12, borderRadius: BorderRadius.circular(6)),
                                                           child: Text(
                                                             mTime,
-                                                            style: const TextStyle(fontSize: 10, color: Colors.amberAccent, fontWeight: FontWeight.bold),
+                                                            style: TextStyle(fontSize: 10, color: isLive ? Colors.redAccent : Colors.amberAccent, fontWeight: FontWeight.bold),
                                                           ),
                                                         ),
                                                         Expanded(
