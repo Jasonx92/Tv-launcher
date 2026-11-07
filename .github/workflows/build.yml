@@ -6,8 +6,11 @@ on:
   workflow_dispatch:
 
 env:
-  APP_VERSION: "2.4.0"
-  BUILD_NUMBER: "31"
+  APP_VERSION: "2.7.0"
+  BUILD_NUMBER: "35"
+
+permissions:
+  contents: write
 
 jobs:
   build:
@@ -55,6 +58,8 @@ jobs:
             http: ^1.2.0
             installed_apps: ^2.2.1
             shared_preferences: ^2.2.3
+            path_provider: ^2.1.3
+            video_player: ^2.8.6
 
           flutter:
             uses-material-design: true
@@ -63,7 +68,28 @@ jobs:
           EOF
           sed -i "s/^version: .*/version: ${APP_VERSION}+${BUILD_NUMBER}/" pubspec.yaml
           mkdir -p assets/backgrounds
-          echo "Put photos here named dawn*.jpg day*.jpg afternoon*.jpg sunset*.jpg night*.jpg" > assets/backgrounds/README.txt
+          U="https://images.unsplash.com"
+          Q="fm=jpg&q=80&w=1920&fit=max&auto=format"
+          get() { curl -fsSL --retry 3 --max-time 90 -o "assets/backgrounds/$1.jpg" "$U/$2?$Q" || echo "warning: could not download $1"; }
+          get night_stars photo-1725347212387-3bc3beed5e53
+          get sunrise photo-1767612743577-95d3673d7000
+          get morning photo-1558728111-ca60b30c1c08
+          get noon photo-1562237316-df210767d62f
+          get golden photo-1567875278694-887f235162eb
+          get sunset photo-1711998059913-da7d2b3d17e8
+          get dusk photo-1788721739567-d758c283ddd3
+          get night_moon photo-1594116640805-de8ac0bc9855
+          find assets/backgrounds -name '*.jpg' -size -10k -delete
+          printf '%s\n' "Photos from Unsplash (Unsplash License):" \
+            "night_stars - Evgeni Tcherkasski - unsplash.com/photos/HiprNExjcZA" \
+            "sunrise - Bakhodirjon Abduraimov - unsplash.com/photos/9nr7RZUHC7E" \
+            "morning - Sarah Lee - unsplash.com/photos/Oj2TckqjduQ" \
+            "noon - Jonathan ACEMYAN - unsplash.com/photos/LpM4TsveIDU" \
+            "golden - Dodi Achmad - unsplash.com/photos/o03vxXMAdME" \
+            "sunset - Josh Sorenson - unsplash.com/photos/Udx04-ZXL4U" \
+            "dusk - Luise and Nic - unsplash.com/photos/YHkx_Wf1tTw" \
+            "night_moon - Benjamin Patin - unsplash.com/photos/j0TVfFIpflc" \
+            "Your own files in /backgrounds with the same names replace these." > assets/backgrounds/CREDITS.txt
           if [ -d backgrounds ]; then cp backgrounds/* assets/backgrounds/ 2>/dev/null || true; fi
           flutter pub get
 
@@ -262,6 +288,7 @@ jobs:
           cat << 'EOF' > lib/main.dart
           import 'dart:async';
           import 'dart:convert';
+          import 'dart:io';
           import 'dart:math' as math;
           import 'dart:typed_data';
           import 'dart:ui' show ImageFilter;
@@ -273,6 +300,8 @@ jobs:
           import 'package:intl/intl.dart' hide TextDirection;
           import 'package:intl/date_symbol_data_local.dart';
           import 'package:shared_preferences/shared_preferences.dart';
+          import 'package:path_provider/path_provider.dart';
+          import 'package:video_player/video_player.dart';
 
           class _TvFocusable extends StatefulWidget {
             final Widget Function(BuildContext context, bool focused) builder;
@@ -581,6 +610,13 @@ jobs:
             }
           }
 
+          class _BgPair {
+            final String a;
+            final String b;
+            final double f;
+            const _BgPair(this.a, this.b, this.f);
+          }
+
           void main() async {
             WidgetsFlutterBinding.ensureInitialized();
             await initializeDateFormatting('ar', null);
@@ -640,7 +676,7 @@ jobs:
             State<LubanHomeScreen> createState() => _LubanHomeScreenState();
           }
 
-          class _LubanHomeScreenState extends State<LubanHomeScreen> {
+          class _LubanHomeScreenState extends State<LubanHomeScreen> with WidgetsBindingObserver {
             DateTime _currentTime = DateTime.now();
             Timer? _clockTimer;
             List<AppInfo> _allInstalledApps = [];
@@ -671,16 +707,31 @@ jobs:
               super.initState();
               _loadPreferences();
               _loadBackgroundAssets();
+              HardwareKeyboard.instance.addHandler(_onGlobalKey);
+              WidgetsBinding.instance.addObserver(this);
+              _shiftTimer = Timer.periodic(const Duration(minutes: 2), (_) {
+                if (!mounted) return;
+                setState(() {
+                  _shiftStep = (_shiftStep + 1) % _shiftPattern.length;
+                  _shift = _shiftPattern[_shiftStep];
+                });
+              });
               _loadAppsAndFavorites();
               _matchesTimer = Timer.periodic(const Duration(minutes: 2), (_) => _fetchMatches());
               _clockTimer = Timer.periodic(const Duration(seconds: 1), (_) {
                 final n = DateTime.now();
                 if (!mounted) return;
                 if (n.minute != _currentTime.minute) {
-                  setState(() => _currentTime = n);
+                  setState(() {
+                    _currentTime = n;
+                    final r = math.Random();
+                    _saverAlign = Alignment(r.nextDouble() * 1.4 - 0.7, r.nextDouble() * 1.4 - 0.7);
+                  });
                 } else {
                   _currentTime = n;
                 }
+                _updateIdle();
+                if (n.second % 30 == 2) _syncVideo();
               });
             }
 
@@ -688,7 +739,284 @@ jobs:
             void dispose() {
               _clockTimer?.cancel();
               _matchesTimer?.cancel();
+              _liveTimer?.cancel();
+              _shiftTimer?.cancel();
+              HardwareKeyboard.instance.removeHandler(_onGlobalKey);
+              WidgetsBinding.instance.removeObserver(this);
+              _vc?.dispose();
               super.dispose();
+            }
+
+            void _setIdle(int st) {
+              if (!mounted) return;
+              setState(() => _idleState = st);
+              final c = _vc;
+              if (c != null && c.value.isInitialized) {
+                if (st == 2) {
+                  c.pause();
+                } else {
+                  c.play();
+                }
+              }
+            }
+
+            @override
+            void didChangeAppLifecycleState(AppLifecycleState state) {
+              final c = _vc;
+              if (c == null || !c.value.isInitialized) return;
+              if (state == AppLifecycleState.resumed) {
+                if (_idleState != 2) c.play();
+              } else {
+                c.pause();
+              }
+            }
+
+            void _loadVideoCache(SharedPreferences prefs) {
+              try {
+                final raw = prefs.getString('video_files');
+                if (raw == null) return;
+                final m = json.decode(raw) as Map<String, dynamic>;
+                final files = <String, String>{};
+                final credits = <String, String>{};
+                final stamps = <String, int>{};
+                m.forEach((k, v) {
+                  final path = _s(v['path']);
+                  if (path.isNotEmpty && File(path).existsSync()) {
+                    files[k] = path;
+                    credits[k] = _s(v['credit']);
+                    stamps[k] = (v['ts'] as num?)?.toInt() ?? 0;
+                  }
+                });
+                if (mounted) {
+                  setState(() {
+                    _videoFiles = files;
+                    _videoCredits = credits;
+                    _videoStamp = stamps;
+                  });
+                }
+              } catch (_) {}
+            }
+
+            Future<void> _saveVideoCache() async {
+              try {
+                final prefs = await SharedPreferences.getInstance();
+                final m = <String, dynamic>{};
+                _videoFiles.forEach((k, v) => m[k] = {'path': v, 'credit': _videoCredits[k] ?? '', 'ts': _videoStamp[k] ?? 0});
+                await prefs.setString('video_files', json.encode(m));
+              } catch (_) {}
+            }
+
+            Future<void> _disposeVideo() async {
+              final c = _vc;
+              if (c == null) return;
+              if (mounted) {
+                setState(() {
+                  _vc = null;
+                  _vcSrc = '';
+                  _vcName = '';
+                });
+              }
+              Future.delayed(const Duration(seconds: 3), () => c.dispose());
+            }
+
+            Future<void> _syncVideo() async {
+              if (!mounted) return;
+              if (_bgMode != 'video') {
+                await _disposeVideo();
+                return;
+              }
+              final p = _bgPair(all: true);
+              if (p.a.isEmpty) return;
+              final dom = p.f < 0.5 ? p.a : p.b;
+              final cached = _videoFiles[dom];
+              final asset = _bgVideoAssets[dom];
+              final String? path = cached ?? asset;
+              if (path == null) {
+                await _disposeVideo();
+                return;
+              }
+              if (path == _vcSrc || _vcBusy) return;
+              _vcBusy = true;
+              try {
+                final c = cached != null
+                    ? VideoPlayerController.file(File(cached), videoPlayerOptions: VideoPlayerOptions(mixWithOthers: true))
+                    : VideoPlayerController.asset(asset!, videoPlayerOptions: VideoPlayerOptions(mixWithOthers: true));
+                await c.initialize();
+                await c.setLooping(true);
+                await c.setVolume(0);
+                if (_idleState != 2) await c.play();
+                if (!mounted || _bgMode != 'video') {
+                  await c.dispose();
+                  return;
+                }
+                final old = _vc;
+                setState(() {
+                  _vc = c;
+                  _vcSrc = path;
+                  _vcName = dom;
+                });
+                if (old != null) Future.delayed(const Duration(seconds: 3), () => old.dispose());
+              } catch (_) {
+              } finally {
+                _vcBusy = false;
+              }
+            }
+
+            Future<void> _refreshVideo() async {
+              if (_bgMode != 'video' || _videoBusy) return;
+              _videoBusy = true;
+              try {
+                final p = _bgPair(all: true);
+                if (p.a.isEmpty) return;
+                final dom = p.f < 0.5 ? p.a : p.b;
+                final other = dom == p.a ? p.b : p.a;
+                final names = <String>[dom];
+                if (other != dom) names.add(other);
+                final now = DateTime.now().millisecondsSinceEpoch;
+                for (final n in names) {
+                  final fresh = _videoFiles.containsKey(n) && now - (_videoStamp[n] ?? 0) < 24 * 3600 * 1000;
+                  if (fresh) continue;
+                  await _fetchVideoFor(n);
+                }
+              } catch (_) {
+              } finally {
+                _videoBusy = false;
+              }
+            }
+
+            Future<void> _fetchVideoFor(String name) async {
+              final q = _videoQueries[name];
+              if (q == null) return;
+              for (final cat in const ['Featured videos', '']) {
+                final r = await _tryVideo(name, q, cat);
+                if (r != 0) return;
+              }
+            }
+
+            Future<int> _tryVideo(String name, String q, String cat) async {
+              try {
+                final uri = Uri.https('commons.wikimedia.org', '/w/api.php', {
+                  'action': 'query',
+                  'format': 'json',
+                  'formatversion': '2',
+                  'generator': 'search',
+                  'gsrnamespace': '6',
+                  'gsrlimit': '30',
+                  'gsrsearch': cat.isEmpty ? 'filetype:video $q' : 'filetype:video incategory:"$cat" $q',
+                  'prop': 'videoinfo',
+                  'viprop': 'url|size|mime|derivatives|extmetadata',
+                  'viextmetadatafilter': 'Artist|LicenseShortName',
+                });
+                final ua = {'User-Agent': 'LubanTV/$_appVersion (personal Android TV launcher)'};
+                final res = await http.get(uri, headers: ua).timeout(const Duration(seconds: 20));
+                if (res.statusCode != 200) return -1;
+
+                final body = json.decode(utf8.decode(res.bodyBytes));
+                final pages = (body['query']?['pages'] as List?) ?? [];
+                final licRe = RegExp(r'^(CC|Public domain|PD)', caseSensitive: false);
+                final cands = <Map<String, dynamic>>[];
+                for (final pg in pages) {
+                  final infos = (pg['videoinfo'] ?? pg['imageinfo']) as List?;
+                  if (infos == null || infos.isEmpty) continue;
+                  final info = infos.first;
+                  final w = (info['width'] as num?) ?? 0;
+                  final h = (info['height'] as num?) ?? 0;
+                  if (w > 0 && h > 0 && w / h < 1.5) continue;
+                  final dur = (info['duration'] as num?) ?? 0;
+                  if (dur != 0 && (dur < 6 || dur > 300)) continue;
+                  final lic = _s(info['extmetadata']?['LicenseShortName']?['value']);
+                  if (!licRe.hasMatch(lic)) continue;
+
+                  String? best;
+                  num bestRank = -1;
+                  final ders = info['derivatives'] as List?;
+                  if (ders == null) continue;
+                  for (final d in ders) {
+                    final type = _s(d['type']);
+                    var src = _s(d['src']);
+                    final dw = (d['width'] as num?) ?? 0;
+                    if (src.isEmpty || !type.contains('webm')) continue;
+                    if (dw < 640 || dw > 1280) continue;
+                    if (src.startsWith('//')) src = 'https:$src';
+                    final isVp8 = type.contains('vp8') || !type.contains('vp9');
+                    final rank = dw * 2 + (isVp8 ? 1 : 0);
+                    if (rank > bestRank) {
+                      bestRank = rank;
+                      best = src;
+                    }
+                  }
+                  if (best == null) continue;
+                  cands.add({'src': best, 'lic': lic, 'info': info});
+                }
+                if (cands.isEmpty) return 0;
+
+                final pick = cands[math.Random().nextInt(cands.length)];
+                final src = _s(pick['src']);
+
+                final dir = await getApplicationSupportDirectory();
+                final bgDir = Directory('${dir.path}/bg');
+                if (!await bgDir.exists()) await bgDir.create(recursive: true);
+                final stamp = DateTime.now().millisecondsSinceEpoch;
+                final path = '${bgDir.path}/video_${name}_$stamp.webm';
+
+                const cap = 50 * 1024 * 1024;
+                final client = http.Client();
+                try {
+                  final req = http.Request('GET', Uri.parse(src))..headers.addAll(ua);
+                  final resp = await client.send(req).timeout(const Duration(seconds: 30));
+                  if (resp.statusCode != 200) return -1;
+                  final len = resp.contentLength;
+                  if (len != null && len > cap) return 0;
+                  final sink = File(path).openWrite();
+                  var got = 0;
+                  var tooBig = false;
+                  try {
+                    await for (final chunk in resp.stream.timeout(const Duration(seconds: 30))) {
+                      got += chunk.length;
+                      if (got > cap) {
+                        tooBig = true;
+                        break;
+                      }
+                      sink.add(chunk);
+                    }
+                  } finally {
+                    await sink.close();
+                  }
+                  if (tooBig || got < 100000) {
+                    try {
+                      File(path).deleteSync();
+                    } catch (_) {}
+                    return tooBig ? 0 : -1;
+                  }
+                } finally {
+                  client.close();
+                }
+
+                final info = pick['info'];
+                var artist = _s(info['extmetadata']?['Artist']?['value']).replaceAll(RegExp(r'<[^>]*>'), '').replaceAll('&amp;', '&').trim();
+                if (artist.length > 40) artist = artist.substring(0, 40);
+                final credit = '${artist.isEmpty ? 'Unknown' : artist} · ${pick['lic']} · Wikimedia Commons';
+
+                final old = _videoFiles[name];
+                if (!mounted) return 1;
+                setState(() {
+                  _videoFiles[name] = path;
+                  _videoCredits[name] = credit;
+                  _videoStamp[name] = stamp;
+                });
+                _saveVideoCache();
+                if (old != null) {
+                  Future.delayed(const Duration(seconds: 20), () {
+                    try {
+                      File(old).deleteSync();
+                    } catch (_) {}
+                  });
+                }
+                _syncVideo();
+                return 1;
+              } catch (_) {
+                return -1;
+              }
             }
 
             Future<void> _loadPreferences() async {
@@ -703,9 +1031,23 @@ jobs:
                 if (savedLeagues != null) {
                   _selectedLeagues = savedLeagues.where((l) => _leagueAr.containsKey(l)).toSet();
                 }
+                _liveEnabled = prefs.getBool('pref_live') ?? true;
+                final lm = prefs.getInt('pref_live_min') ?? 10;
+                _liveMinutes = const [5, 10, 30].contains(lm) ? lm : 10;
+                final sm = prefs.getInt('pref_saver_min') ?? 20;
+                _saverMin = const [0, 10, 20, 30].contains(sm) ? sm : 20;
+                _bgMode = prefs.getString('pref_bg_mode') == 'video' ? 'video' : 'photo';
               });
               _fetchPrayerAndDateData();
               _fetchMatches();
+              _loadLiveCache(prefs);
+              _loadVideoCache(prefs);
+              _restartLiveTimer();
+              Future.delayed(const Duration(seconds: 8), () {
+                _refreshLive();
+                _refreshVideo();
+                _syncVideo();
+              });
             }
 
             Future<void> _loadAppsAndFavorites() async {
@@ -913,6 +1255,84 @@ jobs:
                             title: Text(_selectedLanguage == 'en' ? "Matches Leagues" : "دوريات المباريات"),
                             trailing: Text('${_selectedLeagues.length}/${_leagueAr.length}', style: const TextStyle(color: Color(0xFF38BDF8))),
                             onTap: _showLeaguesDialog,
+                          ),
+                          ListTile(
+                            leading: const Icon(Icons.wallpaper, color: Color(0xFF38BDF8)),
+                            title: Text(_selectedLanguage == 'en' ? "Background Type" : "نوع الخلفية"),
+                            trailing: DropdownButton<String>(
+                              value: _bgMode,
+                              dropdownColor: const Color(0xFF0F172A),
+                              items: [
+                                DropdownMenuItem<String>(value: 'photo', child: Text(_selectedLanguage == 'en' ? "Photos" : "صور")),
+                                DropdownMenuItem<String>(value: 'video', child: Text(_selectedLanguage == 'en' ? "Videos" : "فيديو")),
+                              ],
+                              onChanged: (val) async {
+                                if (val == null) return;
+                                final prefs = await SharedPreferences.getInstance();
+                                await prefs.setString('pref_bg_mode', val);
+                                setDlgState(() => _bgMode = val);
+                                setState(() => _bgMode = val);
+                                _restartLiveTimer();
+                                if (val == 'video') _refreshVideo();
+                                _syncVideo();
+                              },
+                            ),
+                          ),
+                          SwitchListTile(
+                            activeColor: const Color(0xFF38BDF8),
+                            secondary: const Icon(Icons.cloud_download, color: Color(0xFF38BDF8)),
+                            title: Text(_selectedLanguage == 'en' ? "Live Photos (Online)" : "صور حية من الإنترنت"),
+                            value: _liveEnabled,
+                            onChanged: (val) async {
+                              final prefs = await SharedPreferences.getInstance();
+                              await prefs.setBool('pref_live', val);
+                              setDlgState(() => _liveEnabled = val);
+                              setState(() => _liveEnabled = val);
+                              _restartLiveTimer();
+                              if (val) _refreshLive();
+                            },
+                          ),
+                          ListTile(
+                            leading: const Icon(Icons.update, color: Color(0xFF38BDF8)),
+                            title: Text(_selectedLanguage == 'en' ? "Refresh Every" : "تحديث الصور كل"),
+                            trailing: DropdownButton<int>(
+                              value: _liveMinutes,
+                              dropdownColor: const Color(0xFF0F172A),
+                              items: [
+                                DropdownMenuItem<int>(value: 5, child: Text(_selectedLanguage == 'en' ? "5 min" : "5 دقائق")),
+                                DropdownMenuItem<int>(value: 10, child: Text(_selectedLanguage == 'en' ? "10 min" : "10 دقائق")),
+                                DropdownMenuItem<int>(value: 30, child: Text(_selectedLanguage == 'en' ? "30 min" : "30 دقيقة")),
+                              ],
+                              onChanged: (val) async {
+                                if (val == null) return;
+                                final prefs = await SharedPreferences.getInstance();
+                                await prefs.setInt('pref_live_min', val);
+                                setDlgState(() => _liveMinutes = val);
+                                setState(() => _liveMinutes = val);
+                                _restartLiveTimer();
+                              },
+                            ),
+                          ),
+                          ListTile(
+                            leading: const Icon(Icons.shield_moon, color: Color(0xFF38BDF8)),
+                            title: Text(_selectedLanguage == 'en' ? "Screen Saver After" : "شاشة الحماية بعد"),
+                            trailing: DropdownButton<int>(
+                              value: _saverMin,
+                              dropdownColor: const Color(0xFF0F172A),
+                              items: [
+                                DropdownMenuItem<int>(value: 0, child: Text(_selectedLanguage == 'en' ? "Off" : "إيقاف")),
+                                DropdownMenuItem<int>(value: 10, child: Text(_selectedLanguage == 'en' ? "10 min" : "10 دقائق")),
+                                DropdownMenuItem<int>(value: 20, child: Text(_selectedLanguage == 'en' ? "20 min" : "20 دقيقة")),
+                                DropdownMenuItem<int>(value: 30, child: Text(_selectedLanguage == 'en' ? "30 min" : "30 دقيقة")),
+                              ],
+                              onChanged: (val) async {
+                                if (val == null) return;
+                                final prefs = await SharedPreferences.getInstance();
+                                await prefs.setInt('pref_saver_min', val);
+                                setDlgState(() => _saverMin = val);
+                                setState(() => _saverMin = val);
+                              },
+                            ),
                           ),
                           SwitchListTile(
                             activeColor: const Color(0xFF38BDF8),
@@ -1190,7 +1610,62 @@ jobs:
             int _aAsr = 930;
             int _aMaghrib = 1080;
             int _aIsha = 1170;
-            List<String> _bgAssets = [];
+            Map<String, String> _bgFiles = {};
+            String _bgMode = 'photo';
+            VideoPlayerController? _vc;
+            String _vcSrc = '';
+            String _vcName = '';
+            bool _vcBusy = false;
+            bool _videoBusy = false;
+            Map<String, String> _bgVideoAssets = {};
+            Map<String, String> _videoFiles = {};
+            Map<String, String> _videoCredits = {};
+            Map<String, int> _videoStamp = {};
+            static const Map<String, String> _videoQueries = {
+              'night_stars': 'time-lapse night sky stars',
+              'sunrise': 'time-lapse sunrise',
+              'morning': 'time-lapse morning clouds sea',
+              'noon': 'time-lapse clouds blue sky sea',
+              'golden': 'time-lapse golden hour',
+              'sunset': 'time-lapse sunset sea',
+              'dusk': 'time-lapse twilight dusk',
+              'night_moon': 'time-lapse moon night',
+            };
+            Map<String, String> _liveFiles = {};
+            Map<String, String> _liveCredits = {};
+            final Map<String, String> _lastLiveTitle = {};
+            bool _liveEnabled = true;
+            int _liveMinutes = 10;
+            bool _liveBusy = false;
+            Timer? _liveTimer;
+            int _saverMin = 20;
+            int _idleState = 0;
+            DateTime _lastActivity = DateTime.now();
+            LogicalKeyboardKey? _wakeKey;
+            Alignment _saverAlign = Alignment.center;
+            Timer? _shiftTimer;
+            int _shiftStep = 0;
+            Offset _shift = Offset.zero;
+            static const List<Offset> _shiftPattern = [
+              Offset(0, 0),
+              Offset(6, 4),
+              Offset(-6, 8),
+              Offset(4, -6),
+              Offset(-8, -4),
+              Offset(8, 6),
+              Offset(-4, 10),
+              Offset(0, -8),
+            ];
+            static const Map<String, String> _liveQueries = {
+              'night_stars': 'milky way night sky landscape',
+              'sunrise': 'sunrise sea landscape',
+              'morning': 'morning sea coast landscape',
+              'noon': 'blue sky sea beach landscape',
+              'golden': 'golden hour coast landscape',
+              'sunset': 'sunset sea landscape',
+              'dusk': 'twilight sea dusk landscape',
+              'night_moon': 'full moon sea night landscape',
+            };
             Set<String> _selectedLeagues = _leagueAr.keys.toSet();
             final Map<String, Uint8List> _banners = {};
             final Set<String> _bannerTried = {};
@@ -1439,53 +1914,369 @@ jobs:
             Future<void> _loadBackgroundAssets() async {
               try {
                 final manifest = await AssetManifest.loadFromAssetBundle(rootBundle);
-                final list = manifest.listAssets().where((a) => a.startsWith('assets/backgrounds/')).toList();
-                if (mounted) setState(() => _bgAssets = list);
+                final map = <String, String>{};
+              final vids = <String, String>{};
+              for (final a in manifest.listAssets()) {
+                  if (!a.startsWith('assets/backgrounds/')) continue;
+                  final file = a.split('/').last;
+                  final dot = file.lastIndexOf('.');
+                  if (dot <= 0) continue;
+                  final ext = file.substring(dot + 1).toLowerCase();
+                final base = file.substring(0, dot).toLowerCase();
+                if (ext == 'mp4' || ext == 'webm' || ext == 'mkv') {
+                  vids[base] = a;
+                  continue;
+                }
+                if (ext != 'jpg' && ext != 'jpeg' && ext != 'png') continue;
+                map[base] = a;
+                }
+                if (mounted) {
+                setState(() {
+                  _bgFiles = map;
+                  _bgVideoAssets = vids;
+                });
+                _syncVideo();
+              }
               } catch (_) {}
             }
 
-            String _phaseKey() {
-              final t = _currentTime.hour * 60 + _currentTime.minute;
-              if (t >= _aFajr && t < _aSunrise + 90) return 'dawn';
-              if (t >= _aSunrise + 90 && t < _aAsr) return 'day';
-              if (t >= _aAsr && t < _aMaghrib - 30) return 'afternoon';
-              if (t >= _aMaghrib - 30 && t < _aIsha) return 'sunset';
-              return 'night';
+            List<MapEntry<int, String>> _bgTimeline({bool all = false}) {
+              final dawnName = _hasBg('dawn') ? 'dawn' : 'dusk';
+              final raw = <MapEntry<int, String>>[
+                MapEntry(0, 'night_stars'),
+                MapEntry(_aFajr - 50, 'night_stars'),
+                MapEntry(_aFajr + 15, dawnName),
+                MapEntry(_aSunrise + 5, 'sunrise'),
+                MapEntry(_aSunrise + 90, 'morning'),
+                MapEntry(_aDhuhr - 30, 'noon'),
+                MapEntry(_aMaghrib - 100, 'noon'),
+                MapEntry(_aMaghrib - 45, 'golden'),
+                MapEntry(_aMaghrib - 5, 'sunset'),
+                MapEntry(_aMaghrib + 45, 'dusk'),
+                MapEntry(_aIsha + 30, 'night_moon'),
+                MapEntry(_aIsha + 240, 'night_moon'),
+                MapEntry(1440, 'night_stars'),
+              ];
+              final out = <MapEntry<int, String>>[];
+              var last = -1;
+              for (final e in raw) {
+                if (!all && !_hasBg(e.value)) continue;
+                if (e.key <= last || e.key > 1440) continue;
+                last = e.key;
+                out.add(e);
+              }
+              return out;
             }
 
-            String? _bgPhotoPath() {
-              if (_bgAssets.isEmpty) return null;
-              final key = _phaseKey();
-              final list = _bgAssets.where((a) => a.split('/').last.toLowerCase().startsWith(key)).toList()..sort();
-              if (list.isEmpty) return null;
-              final doy = _currentTime.difference(DateTime(_currentTime.year, 1, 1)).inDays;
-              return list[doy % list.length];
+            bool _hasBg(String name) => _bgFiles.containsKey(name) || _liveFiles.containsKey(name);
+
+            Widget _assetImage(String name) {
+              final path = _bgFiles[name];
+              if (path == null) return Container(color: const Color(0xFF0F172A));
+              return Image.asset(
+                path,
+                fit: BoxFit.cover,
+                gaplessPlayback: true,
+                cacheWidth: 1920,
+                errorBuilder: (ctx, _, __) => Container(color: const Color(0xFF0F172A)),
+              );
+            }
+
+            Widget _bgImage(String name) {
+              final live = _liveFiles[name];
+              final Widget img = live != null
+                  ? Image.file(
+                      File(live),
+                      fit: BoxFit.cover,
+                      gaplessPlayback: true,
+                      cacheWidth: 1920,
+                      errorBuilder: (ctx, _, __) => _assetImage(name),
+                    )
+                  : _assetImage(name);
+              return AnimatedSwitcher(
+                duration: const Duration(seconds: 2),
+                child: SizedBox.expand(key: ValueKey(live ?? name), child: img),
+              );
+            }
+
+            _BgPair _bgPair({bool all = false}) {
+              final keys = _bgTimeline(all: all);
+              if (keys.isEmpty) return const _BgPair('', '', 0);
+              final t = _currentTime.hour * 60 + _currentTime.minute;
+              var a = keys.first.value;
+              var b = a;
+              var f = 0.0;
+              if (t >= keys.last.key) {
+                a = keys.last.value;
+                b = a;
+              } else if (t >= keys.first.key) {
+                for (var i = 0; i < keys.length - 1; i++) {
+                  if (t >= keys[i].key && t < keys[i + 1].key) {
+                    a = keys[i].value;
+                    b = keys[i + 1].value;
+                    f = Curves.easeInOut.transform((t - keys[i].key) / (keys[i + 1].key - keys[i].key));
+                    break;
+                  }
+                }
+              }
+              return _BgPair(a, b, f);
             }
 
             Widget _buildBackground() {
-              final photo = _bgPhotoPath();
-              if (photo != null) {
-                return AnimatedSwitcher(
+            final vc = _vc;
+            if (_bgMode == 'video' && vc != null && vc.value.isInitialized) {
+              return RepaintBoundary(
+                child: AnimatedSwitcher(
                   duration: const Duration(seconds: 2),
                   child: SizedBox.expand(
-                    key: ValueKey(photo),
-                    child: Image.asset(photo, fit: BoxFit.cover, gaplessPlayback: true),
+          key: ValueKey(_vcSrc),
+          child: FittedBox(
+            fit: BoxFit.cover,
+            clipBehavior: Clip.hardEdge,
+            child: SizedBox(
+              width: vc.value.size.width,
+              height: vc.value.size.height,
+              child: VideoPlayer(vc),
+            ),
+          ),
+                  ),
+                ),
+              );
+            }
+            final p = _bgPair();
+              if (p.a.isEmpty) {
+                final tm = _currentTime.hour * 60 + _currentTime.minute;
+                return RepaintBoundary(
+                  child: CustomPaint(
+                    painter: _SkyPainter(
+                      minute: tm,
+                      fajr: _aFajr,
+                      sunrise: _aSunrise,
+                      dhuhr: _aDhuhr,
+                      asr: _aAsr,
+                      maghrib: _aMaghrib,
+                      isha: _aIsha,
+                    ),
+                    child: const SizedBox.expand(),
                   ),
                 );
               }
-              final t = _currentTime.hour * 60 + _currentTime.minute;
               return RepaintBoundary(
-                child: CustomPaint(
-                  painter: _SkyPainter(
-                    minute: t,
-                    fajr: _aFajr,
-                    sunrise: _aSunrise,
-                    dhuhr: _aDhuhr,
-                    asr: _aAsr,
-                    maghrib: _aMaghrib,
-                    isha: _aIsha,
+                child: SizedBox.expand(
+                  child: Stack(
+                    fit: StackFit.expand,
+                    children: [
+                      _bgImage(p.a),
+                      if (p.a != p.b) Opacity(opacity: p.f, child: _bgImage(p.b)),
+                    ],
                   ),
-                  child: const SizedBox.expand(),
+                ),
+              );
+            }
+
+            void _loadLiveCache(SharedPreferences prefs) {
+              try {
+                final raw = prefs.getString('live_files');
+                if (raw == null) return;
+                final m = json.decode(raw) as Map<String, dynamic>;
+                final files = <String, String>{};
+                final credits = <String, String>{};
+                m.forEach((k, v) {
+                  final path = _s(v['path']);
+                  if (path.isNotEmpty && File(path).existsSync()) {
+                    files[k] = path;
+                    credits[k] = _s(v['credit']);
+                  }
+                });
+                if (mounted) {
+                  setState(() {
+                    _liveFiles = files;
+                    _liveCredits = credits;
+                  });
+                }
+              } catch (_) {}
+            }
+
+            Future<void> _saveLiveCache() async {
+              try {
+                final prefs = await SharedPreferences.getInstance();
+                final m = <String, dynamic>{};
+                _liveFiles.forEach((k, v) => m[k] = {'path': v, 'credit': _liveCredits[k] ?? ''});
+                await prefs.setString('live_files', json.encode(m));
+              } catch (_) {}
+            }
+
+            void _restartLiveTimer() {
+              _liveTimer?.cancel();
+              _liveTimer = null;
+              if (!_liveEnabled && _bgMode != 'video') return;
+            _liveTimer = Timer.periodic(Duration(minutes: _liveMinutes), (_) {
+              _refreshLive();
+              _refreshVideo();
+            });
+            }
+
+            Future<void> _refreshLive() async {
+              if (!_liveEnabled || _liveBusy) return;
+              _liveBusy = true;
+              try {
+                final p = _bgPair(all: true);
+                if (p.a.isEmpty) return;
+                final dom = p.f < 0.5 ? p.a : p.b;
+                final names = <String>{dom};
+                for (final n in [p.a, p.b]) {
+                  if (!_liveFiles.containsKey(n)) names.add(n);
+                }
+                for (final n in names.take(2)) {
+                  await _refreshLiveFor(n);
+                }
+              } catch (_) {
+              } finally {
+                _liveBusy = false;
+              }
+            }
+
+            Future<void> _refreshLiveFor(String name) async {
+              final q = _liveQueries[name];
+              if (q == null) return;
+              for (final cat in const ['Featured pictures on Wikimedia Commons', 'Quality images']) {
+                final r = await _tryLive(name, q, cat);
+                if (r != 0) return;
+              }
+            }
+
+            Future<int> _tryLive(String name, String q, String cat) async {
+              try {
+                final uri = Uri.https('commons.wikimedia.org', '/w/api.php', {
+                  'action': 'query',
+                  'format': 'json',
+                  'formatversion': '2',
+                  'generator': 'search',
+                  'gsrnamespace': '6',
+                  'gsrlimit': '40',
+                  'gsrsearch': 'filetype:bitmap incategory:"$cat" $q',
+                  'prop': 'imageinfo',
+                  'iiprop': 'url|size|mime|extmetadata',
+                  'iiurlwidth': '1920',
+                  'iiextmetadatafilter': 'Artist|LicenseShortName',
+                });
+                final ua = {'User-Agent': 'LubanTV/$_appVersion (personal Android TV launcher)'};
+                final res = await http.get(uri, headers: ua).timeout(const Duration(seconds: 20));
+                if (res.statusCode != 200) return -1;
+
+                final body = json.decode(utf8.decode(res.bodyBytes));
+                final pages = (body['query']?['pages'] as List?) ?? [];
+                final licRe = RegExp(r'^(CC|Public domain|PD)', caseSensitive: false);
+                final cands = <Map<String, dynamic>>[];
+                for (final pg in pages) {
+                  final infos = pg['imageinfo'] as List?;
+                  if (infos == null || infos.isEmpty) continue;
+                  final info = infos.first;
+                  if (_s(info['mime']) != 'image/jpeg') continue;
+                  final w = (info['width'] as num?) ?? 0;
+                  final h = (info['height'] as num?) ?? 1;
+                  if (w < 2000 || w / h < 1.45) continue;
+                  final lic = _s(info['extmetadata']?['LicenseShortName']?['value']);
+                  if (!licRe.hasMatch(lic)) continue;
+                  final title = _s(pg['title']);
+                  if (title == _lastLiveTitle[name]) continue;
+                  cands.add({'title': title, 'info': info, 'lic': lic});
+                }
+                if (cands.isEmpty) return 0;
+
+                final pick = cands[math.Random().nextInt(cands.length)];
+                final info = pick['info'];
+                final thumb = _s(info['thumburl']);
+                final url = thumb.isNotEmpty ? thumb : _s(info['url']);
+                if (url.isEmpty) return -1;
+
+                final img = await http.get(Uri.parse(url), headers: ua).timeout(const Duration(seconds: 60));
+                final bytes = img.bodyBytes;
+                if (img.statusCode != 200 || bytes.length < 30000 || bytes[0] != 0xFF || bytes[1] != 0xD8) return -1;
+
+                final dir = await getApplicationSupportDirectory();
+                final bgDir = Directory('${dir.path}/bg');
+                if (!await bgDir.exists()) await bgDir.create(recursive: true);
+                final path = '${bgDir.path}/live_${name}_${DateTime.now().millisecondsSinceEpoch}.jpg';
+                await File(path).writeAsBytes(bytes);
+
+                var artist = _s(info['extmetadata']?['Artist']?['value']).replaceAll(RegExp(r'<[^>]*>'), '').replaceAll('&amp;', '&').trim();
+                if (artist.length > 40) artist = artist.substring(0, 40);
+                final credit = '${artist.isEmpty ? 'Unknown' : artist} · ${pick['lic']} · Wikimedia Commons';
+
+                final old = _liveFiles[name];
+                _lastLiveTitle[name] = _s(pick['title']);
+                if (!mounted) return 1;
+                setState(() {
+                  _liveFiles[name] = path;
+                  _liveCredits[name] = credit;
+                });
+                _saveLiveCache();
+                if (old != null) {
+                  Future.delayed(const Duration(seconds: 15), () {
+                    try {
+                      File(old).deleteSync();
+                    } catch (_) {}
+                  });
+                }
+                return 1;
+              } catch (_) {
+                return -1;
+              }
+            }
+
+            void _touch() {
+              _lastActivity = DateTime.now();
+              if (_idleState != 0) _setIdle(0);
+            }
+
+            bool _onGlobalKey(KeyEvent e) {
+              if (_wakeKey != null && e.logicalKey == _wakeKey) {
+                if (e is KeyUpEvent) _wakeKey = null;
+                return true;
+              }
+              if (e is KeyDownEvent || e is KeyRepeatEvent) {
+                final wasIdle = _idleState != 0;
+                _lastActivity = DateTime.now();
+                if (wasIdle) {
+                  _setIdle(0);
+                  if (e is KeyDownEvent) _wakeKey = e.logicalKey;
+                  return true;
+                }
+              }
+              return false;
+            }
+
+            void _updateIdle() {
+              int st = 0;
+              if (_saverMin > 0) {
+                final idle = DateTime.now().difference(_lastActivity).inSeconds;
+                final saverAt = _saverMin * 60;
+                final dimAt = saverAt ~/ 2;
+                st = idle >= saverAt ? 2 : (idle >= dimAt ? 1 : 0);
+              }
+              if (st != _idleState) _setIdle(st);
+            }
+
+            Widget _buildSaver() {
+              final timeStr = DateFormat('hh:mm').format(_currentTime);
+              return AnimatedOpacity(
+                opacity: _idleState == 2 ? 1.0 : 0.0,
+                duration: const Duration(seconds: 3),
+                child: IgnorePointer(
+                  ignoring: _idleState != 2,
+                  child: Container(
+                    color: Colors.black,
+                    child: AnimatedAlign(
+                      alignment: _saverAlign,
+                      duration: const Duration(seconds: 6),
+                      curve: Curves.easeInOut,
+                      child: Text(
+                        timeStr,
+                        style: TextStyle(fontSize: 44, fontWeight: FontWeight.w300, color: Colors.white.withOpacity(0.35)),
+                      ),
+                    ),
+                  ),
                 ),
               );
             }
@@ -1749,6 +2540,11 @@ jobs:
             Widget build(BuildContext context) {
               final isEn = _selectedLanguage == 'en';
               final isAr = _selectedLanguage == 'ar';
+              final bgp = _bgPair();
+              final bgDom = bgp.f < 0.5 ? bgp.a : bgp.b;
+              final bgCredit = (_bgMode == 'video' && _vc != null)
+                  ? (_videoCredits[_vcName] ?? '')
+                  : (_liveFiles.containsKey(bgDom) ? (_liveCredits[bgDom] ?? '') : '');
 
               final timeStr = DateFormat('hh:mm').format(_currentTime);
               final periodStr = isEn 
@@ -1766,20 +2562,31 @@ jobs:
                       Positioned.fill(child: _buildBackground()),
                       Positioned.fill(
                         child: Container(
-                          color: Colors.black.withOpacity(_bgPhotoPath() != null ? 0.40 : 0.20),
+                          color: Colors.black.withOpacity(((_bgMode == 'video' && _vc != null) || _bgFiles.isNotEmpty || _liveFiles.isNotEmpty) ? 0.32 : 0.20),
                         ),
                       ),
                       Positioned(
-                        left: 14,
-                        bottom: 6,
+                        left: 14 + _shift.dx,
+                        bottom: 6 - _shift.dy,
                         child: Directionality(
                           textDirection: TextDirection.ltr,
                           child: Text('v$_appVersion', style: TextStyle(fontSize: 11, color: Colors.white.withOpacity(0.5))),
                         ),
                       ),
+                      if (bgCredit.isNotEmpty)
+                        Positioned(
+                          right: 14 - _shift.dx,
+                          bottom: 6 - _shift.dy,
+                          child: Directionality(
+                            textDirection: TextDirection.ltr,
+                            child: Text(bgCredit, style: TextStyle(fontSize: 10, color: Colors.white.withOpacity(0.5))),
+                          ),
+                        ),
                       SafeArea(
-                        child: Padding(
-                          padding: const EdgeInsets.symmetric(horizontal: 44, vertical: 20),
+                        child: AnimatedPadding(
+                          duration: const Duration(seconds: 4),
+                          curve: Curves.easeInOut,
+                          padding: EdgeInsets.fromLTRB(44 + _shift.dx, 20 + _shift.dy, 44 - _shift.dx, 20 - _shift.dy),
                           child: Column(
                             crossAxisAlignment: CrossAxisAlignment.start,
                             children: [
@@ -1917,6 +2724,23 @@ jobs:
                           ),
                         ),
                       ),
+                      Positioned.fill(
+                        child: IgnorePointer(
+                          child: AnimatedContainer(
+                            duration: const Duration(seconds: 2),
+                            color: Colors.black.withOpacity(_idleState == 1 ? 0.6 : 0.0),
+                          ),
+                        ),
+                      ),
+                      Positioned.fill(child: _buildSaver()),
+                      Positioned.fill(
+                        child: Listener(
+                          behavior: HitTestBehavior.translucent,
+                          onPointerDown: (_) => _touch(),
+                          onPointerHover: (_) => _touch(),
+                          child: const SizedBox.expand(),
+                        ),
+                      ),
                     ],
                   ),
                 ),
@@ -1935,3 +2759,11 @@ jobs:
         with:
           name: Luban-TV-v${{ env.APP_VERSION }}-build${{ env.BUILD_NUMBER }}
           path: build/app/outputs/flutter-apk/Luban-TV-v${{ env.APP_VERSION }}.apk
+          compression-level: 0
+
+      - name: Publish APK to GitHub Release
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: v${{ env.APP_VERSION }}-build${{ env.BUILD_NUMBER }}
+          name: Luban TV v${{ env.APP_VERSION }} (build ${{ env.BUILD_NUMBER }})
+          files: build/app/outputs/flutter-apk/Luban-TV-v${{ env.APP_VERSION }}.apk
